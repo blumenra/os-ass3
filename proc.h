@@ -1,3 +1,8 @@
+
+#define MAX_PSYC_PAGES 16
+#define MAX_TOTAL_PAGES 32
+
+
 // Per-CPU state
 struct cpu {
   uchar apicid;                // Local APIC ID
@@ -32,6 +37,22 @@ struct context {
   uint eip;
 };
 
+
+struct file_page {
+  // uint swaploc;
+  // int age;
+  // char *va;
+};
+
+struct phys_mem_page {
+  // char *va;
+  // int age;
+  // struct freepg *next;
+  // struct freepg *prev;
+};
+
+
+
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -52,6 +73,11 @@ struct proc {
 
   //Swap file. must initiate with create swap file
   struct file *swapFile;      //page file
+
+  struct phys_mem_page phys_mem_pages[MAX_PSYC_PAGES]; // Keeps all pages currently on physical memory
+  struct file_page file_pages[MAX_PSYC_PAGES]; // Keeps all pages currently in swapFile
+  uint num_of_pages_in_mem;
+  uint num_of_pages_in_file;
 };
 
 // Process memory is laid out contiguously, low addresses first:
