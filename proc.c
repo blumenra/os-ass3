@@ -212,9 +212,10 @@ fork(void)
 
   pid = np->pid;
 
+  createSwapFile(np); // Our addition (..?)
+  
   acquire(&ptable.lock);
 
-  createSwapFile(p); // Our addition (..?)
   np->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -235,8 +236,10 @@ exit(void)
   if(curproc == initproc)
     panic("init exiting");
 
-  if (removeSwapFile(proc) != 0)
-    panic("exit: error deleting swap file");
+  if (curproc->pid > 2){
+    if (removeSwapFile(curproc) != 0)
+      panic("exit: error deleting swap file");
+  }
   
   // Close all open files.
   for(fd = 0; fd < NOFILE; fd++){
