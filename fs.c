@@ -808,3 +808,60 @@ readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size)
 
   return fileread(p->swapFile, buffer,  size);
 }
+
+/*
+* Reads from page in swapfile corresponding to userPageVAddr into buff
+*/
+int readPageFromFile(struct proc* p, int ramCtrlrIndex, int userPageVAddr, char* buff) {
+  int maxStructCount = (MAX_TOTAL_PAGES - MAX_PSYC_PAGES);
+  int i;
+  int retInt;
+  for (i = 0; i < maxStructCount; i++) {
+    if (p->fileCtrlr[i].userPageVAddr == userPageVAddr) {
+      retInt = readFromSwapFile(p, buff, i*PGSIZE, PGSIZE);
+      if (retInt == -1)
+        break; //error in read
+      p->ramCtrlr[ramCtrlrIndex] = p->fileCtrlr[i];
+      p->ramCtrlr[ramCtrlrIndex].loadOrder = p->loadOrderCounter++;
+      p->fileCtrlr[i].state = NOTUSED;
+      return retInt;
+    }
+  }
+  //if reached here - physical address given is not paged out (not found)
+  return -1;
+}
+
+
+// Our addition
+/*
+* Writes a page in memory starting from userPageVAddr to a available place in file
+*/
+int writePageToFile(struct proc * p, int userPageVAddr, pde_t *pgdir) {
+  
+  // Get an index of an available place in swapfile of proc p
+  int freePlace = getFreeSlot(p);
+  
+  int retInt = writeToSwapFile(p, (char*)userPageVAddr, PGSIZE*freePlace, PGSIZE);
+  if (retInt == -1)
+    return -1;
+  
+  p->fileCtrlr[freePlace].pgdir = pgdir;
+  p->fileCtrlr[freePlace].userPageVAddr = userPageVAddr;
+  p->fileCtrlr[freePlace].loadOrder = 0;
+  p->fileCtrlr[freePlace].accessCount = 0;
+  p->fileCtrlr[freePlace].state = USED;
+  return retInt;
+}
+
+/*
+* Finds an unused page space in swapfile and returns its index
+*/
+int getFreeSlot(struct proc * p) {
+  int maxStructCount = (MAX_TOTAL_PAGES - MAX_PSYC_PAGES);
+  int i;
+  for (i = 0; i < maxStructCount; i++) {
+    if (p->fileCtrlr[i].state == NOTUSED)
+      return i;
+  }
+  return -1; //file is full
+}
