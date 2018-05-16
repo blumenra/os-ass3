@@ -38,17 +38,15 @@ struct context {
 };
 
 
-struct file_page {
-  // uint swaploc;
-  // int age;
-  // char *va;
-};
+enum page_struct_state {NOTUSED, USED}; 
 
-struct phys_mem_page {
-  // char *va;
-  // int age;
-  // struct freepg *next;
-  // struct freepg *prev;
+// pages struct
+struct pagecontroller {
+  enum page_struct_state state;  
+  pde_t* pgdir;
+  uint userPageVAddr;
+  uint accessCount;
+  uint loadOrder;
 };
 
 
@@ -74,10 +72,11 @@ struct proc {
   //Swap file. must initiate with create swap file
   struct file *swapFile;      //page file
 
-  struct phys_mem_page phys_mem_pages[MAX_PSYC_PAGES]; // Keeps all pages currently on physical memory
-  struct file_page file_pages[MAX_PSYC_PAGES]; // Keeps all pages currently in swapFile
-  uint num_of_pages_in_mem;
-  uint num_of_pages_in_file;
+  struct pagecontroller fileCtrlr[MAX_TOTAL_PAGES - MAX_PSYC_PAGES];
+  struct pagecontroller ramCtrlr[MAX_PSYC_PAGES];
+  uint countOfPagedOut;
+  uint faultCounter;
+  uint loadOrderCounter; // load/creation
 };
 
 // Process memory is laid out contiguously, low addresses first:
