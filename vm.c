@@ -216,6 +216,255 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
   return 0;
 }
 
+// int getSCFIFO(){
+//   pte_t * pte;
+//   int i = 0;
+//   int pageIndex;
+//   uint loadOrder;
+
+// recheck:
+//   pageIndex = -1;
+//   loadOrder = 0xFFFFFFFF;
+//   for (i = 0; i < MAX_PYSC_PAGES; i++) {
+//     if (proc->ramCtrlr[i].state == USED && proc->ramCtrlr[i].loadOrder <= loadOrder){
+//       pageIndex = i;
+//       loadOrder = proc->ramCtrlr[i].loadOrder;
+//     }
+//   }
+//   pte = walkpgdir(proc->ramCtrlr[pageIndex].pgdir, (char*)proc->ramCtrlr[pageIndex].userPageVAddr,0);
+//   if (*pte & PTE_A) {
+//     *pte &= ~PTE_A; // turn off PTE_A flag
+//      proc->ramCtrlr[pageIndex].loadOrder = proc->loadOrderCounter++;
+//      goto recheck;
+//   }
+//   return pageIndex;
+// }
+
+/*
+* Gets the index of page in memory which should be swapped out according to the policy
+*/
+int getPageOutIndex(){
+  #if NFUA
+    return getNFUA();
+  #endif
+  #if LAPA
+    return getLAPA();
+  #endif
+  #if SCFIFO
+    return getSCFIFO();
+  #endif
+  #if AQ
+    return getAQ();
+  #endif
+  panic("Unrecognized paging machanism");
+}
+
+/*
+* Returns the pysical address mapped to the virtual address userPageVAddr
+*/
+int getPagePAddr(int userPageVAddr, pde_t * pgdir){
+
+  // Get the a pointer to the PTE of userPageVAddr in pgdir (Dont allocate new PTE if didnt found.. (third parameter))
+  pte_t* pte = walkpgdir(pgdir, (int*)userPageVAddr, 0);
+
+  if(!pte) //uninitialized page table
+    return -1;
+  return PTE_ADDR(*pte);
+}
+
+/*
+* Change PTE flags properly after swapping-out userPageVAddr
+*/
+void fixPagedOutPTE(int userPageVAddr, pde_t * pgdir){
+  
+  struct proc* p = myproc();
+  
+  pte_t *pte;
+  pte = walkpgdir(pgdir, (int*)userPageVAddr, 0);
+  if (!pte)
+    panic("PTE of swapped page is missing");
+  *pte |= PTE_PG; // Inidicates that the page was Paged-out to secondary storage
+  *pte &= ~PTE_P; // Indicates that the page is NOT in physical memory
+  *pte &= PTE_FLAGS(*pte); //clear junk physical address
+  lcr3(V2P(p->pgdir)); //refresh CR3 register (TLB (cache))
+}
+
+/*
+* Checks if page corresponding to userPageVAddr is indeed in swapfile (e.g not in memory)
+*/
+int pageIsInFile(int userPageVAddr, pde_t * pgdir) {
+  pte_t *pte;
+  pte = walkpgdir(pgdir, (char *)userPageVAddr, 0);
+  return (*pte & PTE_PG); //PAGE IS IN FILE
+}
+
+/*
+* Finds an available room for page in memory and returns its index
+*/
+int getFreeRamCtrlrIndex() {
+  if (myproc() == 0)
+    return -1;
+  int i;
+  for (i = 0; i < MAX_PSYC_PAGES; i++) {
+    if (myproc()->ramCtrlr[i].state == NOTUSED)
+      return i;
+  }
+
+  // If got here, it means that no room for pages in memory is left
+  return -1;
+}
+
+/*
+* Finds an available page in memory and updates its virtual address to userPageVAddr, etc.
+*/
+void addToRamCtrlr(pde_t *pgdir, uint userPageVAddr) {
+
+  struct proc* p = myproc();
+
+  int freeLocation = getFreeRamCtrlrIndex();
+  p->ramCtrlr[freeLocation].pgdir = pgdir;
+  p->ramCtrlr[freeLocation].userPageVAddr = userPageVAddr;
+  p->ramCtrlr[freeLocation].accessCount = 0;
+  p->ramCtrlr[freeLocation].loadOrder = p->loadOrderCounter++;
+  p->ramCtrlr[freeLocation].state = USED;
+}
+
+/*
+* Swaps a sigle page between memory and file by finding the page to swap-out (according to the policy),
+* finding a available place in file for the above and put it in it.
+* After that, 
+*
+*/
+void swap(pde_t *pgdir, uint userPageVAddr){
+  
+  struct proc *p = myproc();
+
+  p->countOfPagedOut++;
+
+  // Get the index of page in memory which should be swapped out according to the policy
+  int outIndex = getPageOutIndex();
+
+  // Get the physical address mapped to the virtual address p->ramCtrlr[outIndex].userPageVAddr in page directory p->ramCtrlr[outIndex].pgdir
+  int outPagePAddr = getPagePAddr(p->ramCtrlr[outIndex].userPageVAddr, p->ramCtrlr[outIndex].pgdir);
+
+  // Swap-out page starting in p->ramCtrlr[outIndex].userPageVAddr
+  writePageToFile(p, p->ramCtrlr[outIndex].userPageVAddr, p->ramCtrlr[outIndex].pgdir);
+  
+  // Converts physical address to virtual address
+  char *v = (char*)P2V(outPagePAddr);
+  
+  //free swapped-out page
+  kfree(v);
+
+  // Change state of swapped-out page in MEMORY to UNUSED
+  p->ramCtrlr[outIndex].state = NOTUSED;
+
+  // Fix PTE flags properly after swapping-out userPageVAddr
+  fixPagedOutPTE(p->ramCtrlr[outIndex].userPageVAddr, p->ramCtrlr[outIndex].pgdir);
+
+  // Finds an available page in memory and updates its virtual address to be userPageVAddr
+  addToRamCtrlr(pgdir, userPageVAddr);
+}
+
+/*
+* Updates PTE flags of userPageVAddr after swapping-in a page
+*/
+void fixPagedInPTE(int userPageVAddr, int pagePAddr, pde_t * pgdir){
+  pte_t *pte;
+  pte = walkpgdir(pgdir, (int*)userPageVAddr, 0);
+  if (!pte)
+    panic("PTE of swapped page is missing");
+  if (*pte & PTE_P)
+    panic("PAGE IN REMAP!");
+  *pte |= PTE_P | PTE_W | PTE_U;      //Turn on needed bits
+  *pte &= ~PTE_PG;                    //Turn off inFile bit
+  *pte |= pagePAddr;                  //Map PTE to the new Page
+  lcr3(V2P(myproc()->pgdir)); //refresh CR3 register
+}
+
+/*
+* Retrieves the paged-out page which its va stored in cr2 from swapfile
+* Allocates new room in physical memory for the above purpose
+*/
+int getPageFromFile(int cr2){
+
+  struct proc* p = myproc();
+  // This buffer used to store swapped-in page temporary
+  char buff[PGSIZE];
+
+  p->faultCounter++;
+  int userPageVAddr = PGROUNDDOWN(cr2);
+
+  // Allocate new space in memory of page size for the swapping-in page
+  char * newPg = kalloc();
+
+  // Initialize the allocated page in memory with 0
+  memset(newPg, 0, PGSIZE);
+
+  // Find available page room in memory and return its index in array
+  int outIndex = getFreeRamCtrlrIndex();
+
+  // Refresh CR3 register to avoid non-updated address access from TLB
+  lcr3(V2P(p->pgdir));
+
+  // If there is a room for a new page in memory..
+  if (outIndex >= 0) {
+    // Update PTE flags and map userPageVAddr to the physical address newPg
+    fixPagedInPTE(userPageVAddr, V2P(newPg), p->pgdir);
+
+    // Find the relevant page (with userPageVAddr) in swapfile, and write its content in the new allocated address in memory
+    readPageFromFile(p, outIndex, userPageVAddr, (char*)userPageVAddr);
+
+    return 1; //Operation was successful
+  }
+  p->countOfPagedOut++;
+
+  /*
+  * Swapping-out is needed
+  */
+
+  // Find the available page space in swapfile and return its index in array
+  outIndex = getPageOutIndex();
+
+  struct pagecontroller outPage = p->ramCtrlr[outIndex];
+
+  // Find the relevant page (with userPageVAddr) in swapfile, and write its content in the new allocated address in memory
+  fixPagedInPTE(userPageVAddr, V2P(newPg), p->pgdir);
+
+  // Find the relevant page (with userPageVAddr) in swapfile, and write its content on buff temporary
+  readPageFromFile(p, outIndex, userPageVAddr, buff);
+
+  // Get the corresponding physical address of outPage.userPageVAddr
+  int outPagePAddr = getPagePAddr(outPage.userPageVAddr, outPage.pgdir);
+
+  // Writes buff into newPg, in other words reads the page from swapfile to physical memory
+  memmove(newPg, buff, PGSIZE);
+
+  // Write the swapped-out page from memory to swapfile
+  writePageToFile(p, outPage.userPageVAddr, outPage.pgdir);
+
+  // Update outPage.userPageVAddr PTE flags for proper to swapping-out
+  fixPagedOutPTE(outPage.userPageVAddr, outPage.pgdir);
+
+  // Get the corresponding physical address of the swapped-out page's virtual address
+  char *v = (char*)P2V(outPagePAddr);
+
+  // Free the memory space of the swapped-out page
+  kfree(v);
+
+  return 1;
+}
+
+/*
+* Checks if a policy was defined or not
+*/
+int isNONEpolicy(){
+  #if NONE
+    return 1;
+  #endif
+  return 0;
+}
+
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 int
@@ -229,8 +478,21 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   if(newsz < oldsz)
     return oldsz;
 
+  // If any policy is defined..
+  if (!isNONEpolicy()){
+    // If number of pages composing newsz exceeds MAX_TOTAL_PAGES and the current proc is NOT init or shell...
+    if (PGROUNDUP(newsz)/PGSIZE > MAX_TOTAL_PAGES && myproc()->pid > 2) {
+      cprintf("proc is too big\n", PGROUNDUP(newsz)/PGSIZE);
+      return 0;
+    }
+  }
+
+
   a = PGROUNDUP(oldsz);
+
+  int i = 0; //debugging
   for(; a < newsz; a += PGSIZE){
+    
     mem = kalloc();
     if(mem == 0){
       cprintf("allocuvm out of memory\n");
@@ -244,7 +506,17 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       kfree(mem);
       return 0;
     }
+
+    // If any policy is defined AND current proc is NOT init or shell...
+    if (!isNONEpolicy() && myproc()->pid > 2){
+      // If current proc cannot have more pages in memory (exceeds MAX_PSYC_PAGES)
+      if (PGROUNDUP(oldsz)/PGSIZE + i > MAX_PSYC_PAGES)
+        swap(pgdir, a);
+      else //there's room
+        addToRamCtrlr(pgdir, a);
+    }
   }
+
   return newsz;
 }
 
