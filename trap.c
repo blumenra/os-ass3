@@ -78,6 +78,19 @@ trap(struct trapframe *tf)
     lapiceoi();
     break;
 
+  /*
+  * OUR ADDITION
+  */
+  // If the interupt was from atempting to access paged out data..
+  case T_PGFLT:
+    if (myproc() != 0 &&
+          (tf->cs&3) == 3 &&
+          pageIsInFile(rcr2(), myproc()->pgdir)){
+      if (getPageFromFile(rcr2())){
+        break;
+      }
+    }
+
   //PAGEBREAK: 13
   default:
     if(myproc() == 0 || (tf->cs&3) == 0){
