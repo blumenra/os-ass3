@@ -52,10 +52,13 @@ struct inode*   nameiparent(char*, char*);
 int             readi(struct inode*, char*, uint, uint);
 void            stati(struct inode*, struct stat*);
 int             writei(struct inode*, char*, uint, uint);
-int		createSwapFile(struct proc* p);
-int		readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size);
-int		writeToSwapFile(struct proc* p, char* buffer, uint placeOnFile, uint size);
-int		removeSwapFile(struct proc* p);
+int				createSwapFile(struct proc* p);
+int				readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size);
+int				writeToSwapFile(struct proc* p, char* buffer, uint placeOnFile, uint size);
+int				removeSwapFile(struct proc* p);
+int 			getFreeSlot(struct proc * p);
+int 			writePageToFile(struct proc * p, int userPageVAddr, pde_t *pgdir);
+int 			readPageFromFile(struct proc * p, int ramCtrlrIndex, int userPageVAddr, char* buff);
 
 // ide.c
 void            ideinit(void);
@@ -193,6 +196,16 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+int 			getPageFromFile(int cr2);
+void 			swap(pde_t *pgdir, uint userPageVAddr);
+void 			addToRamCtrlr(pde_t *pgdir, uint userPageVAddr);
+int 			getFreeRamCtrlrIndex();
+int 			pageIsInFile(int userPageVAddr, pde_t * pgdir);
+void 			fixPagedOutPTE(int userPageVAddr, pde_t * pgdir);
+int 			getPagePAddr(int userPageVAddr, pde_t * pgdir);
+int 			getPageOutIndex();
+int 			isNONEpolicy();
+void 			fixPagedInPTE(int userPageVAddr, int pagePAddr, pde_t * pgdir);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
