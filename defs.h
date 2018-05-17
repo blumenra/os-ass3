@@ -127,6 +127,9 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+int 			isShellOrInit(struct proc* p);
+void 			updateAccessCountersForAll(void);
+void 			updateAdvQueuesForAll(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -206,6 +209,11 @@ int 			getPagePAddr(int userPageVAddr, pde_t * pgdir);
 int 			getPageOutIndex();
 int 			isNONEpolicy();
 void 			fixPagedInPTE(int userPageVAddr, int pagePAddr, pde_t * pgdir);
+void 			updateAccessCounters(struct proc* p);
+void 			updateAdvQueues(struct proc* p);
+uint 			countNumOfOneBits(uint n);
+int 			findNextAdvPageIndex(struct proc* p, int boundery);
+int 			findMinAdvPageIndex(struct proc* p);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

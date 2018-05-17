@@ -823,6 +823,7 @@ int readPageFromFile(struct proc* p, int ramCtrlrIndex, int userPageVAddr, char*
         break; //error in read
       p->ramCtrlr[ramCtrlrIndex] = p->fileCtrlr[i];
       p->ramCtrlr[ramCtrlrIndex].loadOrder = p->loadOrderCounter++;
+      p->ramCtrlr[ramCtrlrIndex].advQueue = p->advQueueCounter--;
       p->fileCtrlr[i].state = NOTUSED;
       return retInt;
     }
@@ -848,7 +849,7 @@ int writePageToFile(struct proc * p, int userPageVAddr, pde_t *pgdir) {
   p->fileCtrlr[freePlace].pgdir = pgdir;
   p->fileCtrlr[freePlace].userPageVAddr = userPageVAddr;
   p->fileCtrlr[freePlace].loadOrder = 0;
-  p->fileCtrlr[freePlace].accessCount = 0;
+  p->fileCtrlr[freePlace].accessTracker = 0;
   p->fileCtrlr[freePlace].state = USED;
   return retInt;
 }

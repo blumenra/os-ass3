@@ -53,6 +53,12 @@ trap(struct trapframe *tf)
       ticks++;
       wakeup(&ticks);
       release(&tickslock);
+
+      updateAccessCountersForAll();
+
+      #if AQ
+        updateAdvQueuesForAll();
+      #endif
     }
     lapiceoi();
     break;

@@ -241,7 +241,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 // }
 
 /*
-* Gets the index of page in memory which should be swapped out according to the policy
+* Gets the index of page in memory which should be swapped-out according to the defined policy
 */
 int getPageOutIndex(){
   #if NFUA
@@ -257,6 +257,140 @@ int getPageOutIndex(){
     return getAQ();
   #endif
   panic("Unrecognized paging machanism");
+}
+
+int getNFUA(){
+
+  struct proc* p = myproc();
+
+  int min = -1;
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if((min == -1) || (p->ramCtrlr[min].accessTracker > p->ramCtrlr[i].accessTracker)){
+      min = i;
+    }
+  }
+
+  return min;
+}
+
+int getLAPA(){
+
+  struct proc* p = myproc();
+
+  int min = -1;
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if((min == -1) || (countNumOfOneBits(p->ramCtrlr[min].accessTracker) > countNumOfOneBits(p->ramCtrlr[i].accessTracker))){
+      min = i;
+    }
+  }
+
+  return min;
+}
+
+
+int getSCFIFO(){
+
+  struct proc* p = myproc();
+  pte_t* pte;
+  int min = -1;
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if((min == -1) || (p->ramCtrlr[min].loadOrder > p->ramCtrlr[i].loadOrder)){
+      min = i;
+    }
+  }
+
+  pte = walkpgdir(p->ramCtrlr[min].pgdir, (char*)p->ramCtrlr[min].userPageVAddr,0);
+  
+  // If the page was accessed..
+  if (*pte & PTE_A) {
+    *pte &= ~PTE_A; // turn off PTE_A flag
+     p->ramCtrlr[min].loadOrder = p->loadOrderCounter++; // update page's loadOrder to be the highest (treat it like it was just created)
+     return getSCFIFO();
+  }
+
+  return min;
+}
+
+int getAQ(){
+
+  struct proc* p = myproc();
+
+  int min = -1;
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if((min == -1) || (p->ramCtrlr[min].advQueue > p->ramCtrlr[i].advQueue)){
+      min = i;
+    }
+  }
+
+  return min;
+}
+
+
+uint countNumOfOneBits(uint n){
+    uint counter = 0;
+    while(n) {
+        counter += n % 2;
+        n >>= 1;
+    }
+    return counter;
+}
+
+
+
+
+int findNextAQPageIndex(struct proc* p, int index){
+  
+  
+  int ans = -1;
+  if(index >= 0){ // Find the next in advQueu after page
+    ans = findNextAdvPageIndex(p, p->ramCtrlr[index].advQueue);
+  }
+  else{ // Find the first in advQueu
+    ans = findMinAdvPageIndex(p);
+  }
+
+  return ans;
+}
+
+int findNextAdvPageIndex(struct proc* p, int boundery){
+
+  uint min = -1;
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+    if(p->ramCtrlr[i].advQueue <= boundery)
+      continue;
+
+    // Here p->ramCtrlr[i] is in the ram and grater than boundery
+    if((min < 0) || (p->ramCtrlr[min].advQueue > p->ramCtrlr[i].advQueue)){
+      min = i;
+    }
+  }
+
+  return min;
+}
+
+
+int findMinAdvPageIndex(struct proc* p){
+  return findNextAdvPageIndex(p, 0xFFFFFFFF);
+}
+
+void swapAdvQueue(struct proc* p, int priorPageIndex, int afterPageIndex){
+
+  int tmpTurn = 0;
+  tmpTurn = p->ramCtrlr[priorPageIndex].advQueue;
+  p->ramCtrlr[priorPageIndex].advQueue = p->ramCtrlr[afterPageIndex].advQueue;
+  p->ramCtrlr[afterPageIndex].advQueue = tmpTurn;
+}
+
+int isPageAccessed(struct proc* p, int index){
+
+  pte_t* pte = walkpgdir(p->ramCtrlr[index].pgdir, (char*)(p->ramCtrlr[index].userPageVAddr), 0);
+  return (*pte & PTE_A);
 }
 
 /*
@@ -324,10 +458,14 @@ void addToRamCtrlr(pde_t *pgdir, uint userPageVAddr) {
   int freeLocation = getFreeRamCtrlrIndex();
   p->ramCtrlr[freeLocation].pgdir = pgdir;
   p->ramCtrlr[freeLocation].userPageVAddr = userPageVAddr;
-  p->ramCtrlr[freeLocation].accessCount = 0;
+  p->ramCtrlr[freeLocation].accessTracker = 0;
   p->ramCtrlr[freeLocation].loadOrder = p->loadOrderCounter++;
   p->ramCtrlr[freeLocation].state = USED;
+
+  p->ramCtrlr[freeLocation].advQueue = p->advQueueCounter--;
 }
+
+
 
 /*
 * Swaps a sigle page between memory and file by finding the page to swap-out (according to the policy),
@@ -464,6 +602,69 @@ int isNONEpolicy(){
   #endif
   return 0;
 }
+
+/*
+* Updates the accessCouter field of all used pages of process p,
+* according to their PTE_A flag (which turned on when access to page ocurred)
+*/
+void updateAccessCounters(struct proc* p){
+  pte_t * pte;
+  int i;
+  for (i = 0; i < MAX_PSYC_PAGES; i++) {
+    if (p->ramCtrlr[i].state == USED){
+      pte = walkpgdir(p->ramCtrlr[i].pgdir, (char*)p->ramCtrlr[i].userPageVAddr,0);
+      
+      p->ramCtrlr[i].accessTracker = p->ramCtrlr[i].accessTracker >> 1; // shift right by 1
+      if(*pte & PTE_A){
+        
+        p->ramCtrlr[i].accessTracker |= 0x80000000;                       // add bit 1 to MSB
+      }
+      else{
+
+      }
+      
+      *pte &= ~PTE_A; // turn off PTE_A flag
+    } 
+  }
+}
+
+
+void updateAdvQueues(struct proc* p){
+  
+  int priorPageIndex = -1;
+  int afterPageIndex = -1;
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+
+    if(priorPageIndex == -1){ // If this is the first page in ram we meet
+      
+      priorPageIndex = findNextAQPageIndex(p, priorPageIndex);
+    }
+    // else if(afterPageIndex == -1){
+    //   afterPageIndex = findNextAQPageIndex(p, priorPageIndex);
+    //   if(isPageAccessed(p, afterPageIndex) &&
+    //     !isPageAccessed(p, priorPageIndex)){
+
+    //     swapAdvQueue(p, afterPageIndex, priorPageIndex);
+    //   }
+
+    //   priorPageIndex = afterPageIndex;
+    // }
+    else{
+      afterPageIndex = findNextAQPageIndex(p, priorPageIndex);
+      if(isPageAccessed(p, afterPageIndex) &&
+        !isPageAccessed(p, priorPageIndex)){
+
+        swapAdvQueue(p, afterPageIndex, priorPageIndex);
+      }
+
+      priorPageIndex = afterPageIndex;
+    }
+  }
+}
+
 
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.

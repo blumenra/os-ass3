@@ -45,10 +45,10 @@ struct pagecontroller {
   enum page_struct_state state;  
   pde_t* pgdir;
   uint userPageVAddr;
-  uint accessCount;
+  uint accessTracker;
   uint loadOrder;
+  int advQueue;
 };
-
 
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
@@ -77,6 +77,7 @@ struct proc {
   uint countOfPagedOut;
   uint faultCounter;
   uint loadOrderCounter; // load/creation
+  int advQueueCounter;
 };
 
 // Process memory is laid out contiguously, low addresses first:

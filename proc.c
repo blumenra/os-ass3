@@ -212,8 +212,33 @@ fork(void)
 
   pid = np->pid;
 
-  createSwapFile(np); // Our addition (..?)
+  // Our addition
+  createSwapFile(np);
+
+  // Initialize accessTrackers of all pages on proc np to 0
+  int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
+  int initValue = 0;
+
+  #if NFUA
+    initValue = 0;
+  #endif
+
+  #if LAPA
+    initValue = 0xFFFFFFFF;
+  #endif
+
+  for(int i=0; i < MAX_PSYC_PAGES; i++)
+    np->ramCtrlr[i].accessTracker = initValue;
   
+  for(int i=0; i < numOfPagesInFile; i++)
+    np->fileCtrlr[i].accessTracker = initValue;
+
+  np->countOfPagedOut = 0;
+  np->faultCounter = 0;
+  np->loadOrderCounter = 0;
+  np->advQueueCounter = 0;
+
+
   acquire(&ptable.lock);
 
   np->state = RUNNABLE;
@@ -236,10 +261,9 @@ exit(void)
   if(curproc == initproc)
     panic("init exiting");
 
-  if (curproc->pid > 2){
-    if (removeSwapFile(curproc) != 0)
+  if (removeSwapFile(curproc) != 0)
       panic("exit: error deleting swap file");
-  }
+
   
   // Close all open files.
   for(fd = 0; fd < NOFILE; fd++){
@@ -538,4 +562,45 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int
+isShellOrInit(struct proc* p){
+  
+  int pid = -1;
+  if(p)
+    pid = p->pid;
+  return pid <= 2;
+}
+
+void
+updateAccessCountersForAll(void){
+
+  struct proc *p;
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if (!isShellOrInit(p) && (p->state == RUNNING ||
+                              p->state == RUNNABLE ||
+                              p->state == SLEEPING)){
+
+      updateAccessCounters(p); //implemented in vm.c
+    }
+  }
+  release(&ptable.lock);
+}
+
+void
+updateAdvQueuesForAll(void){
+
+  struct proc *p;
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if (!isShellOrInit(p) && (p->state == RUNNING ||
+                              p->state == RUNNABLE ||
+                              p->state == SLEEPING)){
+
+      updateAdvQueues(p); //implemented in vm.c
+    }
+  }
+  release(&ptable.lock);
 }
