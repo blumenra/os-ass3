@@ -59,6 +59,7 @@ int				removeSwapFile(struct proc* p);
 int 			getFreeSlot(struct proc * p);
 int 			writePageToFile(struct proc * p, int userPageVAddr, pde_t *pgdir);
 int 			readPageFromFile(struct proc * p, int ramCtrlrIndex, int userPageVAddr, char* buff);
+void 			copySwapFile(struct proc* fromP, struct proc* toP);
 
 // ide.c
 void            ideinit(void);
@@ -75,6 +76,8 @@ char*           kalloc(void);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
+int 			getTotalPages();
+int 			getFreePages();
 
 // kbd.c
 void            kbdintr(void);
@@ -130,6 +133,8 @@ void            yield(void);
 int 			isShellOrInit(struct proc* p);
 void 			updateAccessCountersForAll(void);
 void 			updateAdvQueuesForAll(void);
+int 			getNumOfPagesInMem(struct proc* p);
+int 			getNumOfPagesInFile(struct proc* p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -199,6 +204,7 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+
 int 			getPageFromFile(int cr2);
 void 			swap(pde_t *pgdir, uint userPageVAddr);
 void 			addToRamCtrlr(pde_t *pgdir, uint userPageVAddr);
@@ -214,6 +220,10 @@ void 			updateAdvQueues(struct proc* p);
 uint 			countNumOfOneBits(uint n);
 int 			findNextAdvPageIndex(struct proc* p, int boundery);
 int 			findMinAdvPageIndex(struct proc* p);
+int 			getAQ(void);
+int 			getSCFIFO(void);
+int 			getLAPA(void);
+int 			getNFUA(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

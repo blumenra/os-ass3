@@ -13,6 +13,16 @@ void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
                    // defined by the kernel linker script in kernel.ld
 
+int numOfFreePages = 0;
+
+int getTotalPages(){
+  return PGROUNDDOWN(PHYSTOP-V2P(end))/PGSIZE;
+}
+
+int getFreePages(){
+  return numOfFreePages;
+}
+
 struct run {
   struct run *next;
 };
@@ -64,6 +74,8 @@ kfree(char *v)
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
 
+  numOfFreePages++;
+
   // Fill with junk to catch dangling refs.
   memset(v, 1, PGSIZE);
 
@@ -86,6 +98,8 @@ kalloc(void)
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
+
+  numOfFreePages--;
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;

@@ -197,6 +197,21 @@ fork(void)
     return -1;
   }
   np->sz = curproc->sz;
+
+  // Our Addition
+  if (curproc->pid > 2){
+    copySwapFile(curproc, np);
+    np->loadOrderCounter = curproc->loadOrderCounter;
+    for (i = 0; i < MAX_PSYC_PAGES; i++){
+      np->ramCtrlr[i] = curproc->ramCtrlr[i]; //deep copies ramCtrlr list
+      np->ramCtrlr[i].pgdir = np->pgdir;  //replace parent pgdir with child new pgdir
+    }
+    for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++){
+      np->fileCtrlr[i] = curproc->fileCtrlr[i]; //deep copies fileCtrlr list
+      np->fileCtrlr[i].pgdir = np->pgdir;   //replace parent pgdir with child new pgdir
+    }
+  }
+
   np->parent = curproc;
   *np->tf = *curproc->tf;
 
@@ -211,32 +226,34 @@ fork(void)
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
+  np->faultCounter = 0;
+  np->countOfPagedOut = 0;
 
   // Our addition
-  createSwapFile(np);
+  // createSwapFile(np);
 
-  // Initialize accessTrackers of all pages on proc np to 0
-  int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
-  int initValue = 0;
+  // // Initialize accessTrackers of all pages on proc np to 0
+  // int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
+  // int initValue = 0;
 
-  #if NFUA
-    initValue = 0;
-  #endif
+  // #if NFUA
+  //   initValue = 0;
+  // #endif
 
-  #if LAPA
-    initValue = 0xFFFFFFFF;
-  #endif
+  // #if LAPA
+  //   initValue = 0xFFFFFFFF;
+  // #endif
 
-  for(int i=0; i < MAX_PSYC_PAGES; i++)
-    np->ramCtrlr[i].accessTracker = initValue;
+  // for(int i=0; i < MAX_PSYC_PAGES; i++)
+  //   np->ramCtrlr[i].accessTracker = initValue;
   
-  for(int i=0; i < numOfPagesInFile; i++)
-    np->fileCtrlr[i].accessTracker = initValue;
+  // for(int i=0; i < numOfPagesInFile; i++)
+  //   np->fileCtrlr[i].accessTracker = initValue;
 
-  np->countOfPagedOut = 0;
-  np->faultCounter = 0;
-  np->loadOrderCounter = 0;
-  np->advQueueCounter = 0;
+  // np->countOfPagedOut = 0;
+  // np->faultCounter = 0;
+  // np->loadOrderCounter = 0;
+  // np->advQueueCounter = 0;
 
 
   acquire(&ptable.lock);
@@ -261,8 +278,6 @@ exit(void)
   if(curproc == initproc)
     panic("init exiting");
 
-  if (removeSwapFile(curproc) != 0)
-      panic("exit: error deleting swap file");
 
   
   // Close all open files.
@@ -271,6 +286,11 @@ exit(void)
       fileclose(curproc->ofile[fd]);
       curproc->ofile[fd] = 0;
     }
+  }
+  if(curproc->pid > 2){
+    removeSwapFile(curproc);
+    // if (removeSwapFile(curproc) != 0)
+    //   panic("exit: error deleting swap file");
   }
 
   begin_op();
@@ -294,6 +314,12 @@ exit(void)
 
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
+
+  #if TRUE
+    procdump();
+  #endif
+
+
   sched();
   panic("zombie exit");
 }
@@ -546,15 +572,21 @@ procdump(void)
   struct proc *p;
   char *state;
   uint pc[10];
-
+  
+  
+  cprintf("\n");
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    int allocatedPages = PGROUNDUP(p->sz)/PGSIZE;
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %s %s", p->pid, state, p->name);
+
+
+    cprintf("%d %s %d %d %d %d %s", p->pid, state, allocatedPages, getNumOfPagesInFile(p), p->faultCounter, p->countOfPagedOut, p->name);
+    
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
       for(i=0; i<10 && pc[i] != 0; i++)
@@ -562,7 +594,67 @@ procdump(void)
     }
     cprintf("\n");
   }
+
+  int freePages = getFreePages();
+  int TotalPages = getTotalPages();
+  cprintf("Used pages in the system: %d\n", TotalPages - freePages);
+  cprintf("Free pages in the system: %d/%d", freePages, TotalPages);
 }
+
+
+int getNumOfPagesInMem(struct proc* p){
+  
+  int count = 0;
+  for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if (p->ramCtrlr[i].state == USED){
+      count++;
+    }
+  }
+  return count;
+}
+
+int getNumOfPagesInFile(struct proc* p){
+  
+  int count = 0;
+  for(int i=0; i < (MAX_TOTAL_PAGES - MAX_PSYC_PAGES); i++){
+    if (p->fileCtrlr[i].state == USED){
+      count++;
+    }
+  }
+  return count;
+}
+
+
+// int getNumOfPagesInMem(struct proc* p){
+//   getNumOfPages(p, 1);
+// }
+
+// int getNumOfPagesInFile(struct proc* p){
+//   getNumOfPages(p, 0);
+// }
+
+// int getNumOfPages(struct proc* p, int mem){
+  
+//   int count = 0;
+//   int size;
+//   struct pagecontroller* ctrls;
+//   if(mem){
+//     *ctrls = p->ramCtrlr;
+//     size = MAX_PSYC_PAGES;
+//   }
+//   else{
+//     *ctrls = p->fileCtrlr;
+//     size = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
+//   }
+
+//   for(int i=0; i < size; i++){
+//     if ((*ctrls)[i].state == USED){
+//       count++;
+//     }
+//   }
+
+//   return count;
+// }
 
 int
 isShellOrInit(struct proc* p){
@@ -579,10 +671,10 @@ updateAccessCountersForAll(void){
   struct proc *p;
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if (!isShellOrInit(p) && (p->state == RUNNING ||
-                              p->state == RUNNABLE ||
-                              p->state == SLEEPING)){
-
+    // if (!isShellOrInit(p) && (p->state == RUNNING ||
+    //                           p->state == RUNNABLE ||
+    //                           p->state == SLEEPING)){
+    if(p->pid > 2 && p->state > 1 && p->state < 5){
       updateAccessCounters(p); //implemented in vm.c
     }
   }

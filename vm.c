@@ -259,8 +259,9 @@ int getPageOutIndex(){
   panic("Unrecognized paging machanism");
 }
 
-int getNFUA(){
+int getNFUA(void){
 
+  cprintf("IM IN getNFUA!\n");
   struct proc* p = myproc();
 
   int min = -1;
@@ -271,10 +272,11 @@ int getNFUA(){
     }
   }
 
+  cprintf("Returing min=%d from getNFUA", min);
   return min;
 }
 
-int getLAPA(){
+int getLAPA(void){
 
   struct proc* p = myproc();
 
@@ -290,7 +292,7 @@ int getLAPA(){
 }
 
 
-int getSCFIFO(){
+int getSCFIFO(void){
 
   struct proc* p = myproc();
   pte_t* pte;
@@ -314,7 +316,7 @@ int getSCFIFO(){
   return min;
 }
 
-int getAQ(){
+int getAQ(void){
 
   struct proc* p = myproc();
 
@@ -403,6 +405,7 @@ int getPagePAddr(int userPageVAddr, pde_t * pgdir){
 
   if(!pte) //uninitialized page table
     return -1;
+
   return PTE_ADDR(*pte);
 }
 
@@ -456,11 +459,11 @@ void addToRamCtrlr(pde_t *pgdir, uint userPageVAddr) {
   struct proc* p = myproc();
 
   int freeLocation = getFreeRamCtrlrIndex();
+  p->ramCtrlr[freeLocation].state = USED;
   p->ramCtrlr[freeLocation].pgdir = pgdir;
   p->ramCtrlr[freeLocation].userPageVAddr = userPageVAddr;
-  p->ramCtrlr[freeLocation].accessTracker = 0;
   p->ramCtrlr[freeLocation].loadOrder = p->loadOrderCounter++;
-  p->ramCtrlr[freeLocation].state = USED;
+  p->ramCtrlr[freeLocation].accessTracker = 0;
 
   p->ramCtrlr[freeLocation].advQueue = p->advQueueCounter--;
 }
@@ -520,6 +523,7 @@ void fixPagedInPTE(int userPageVAddr, int pagePAddr, pde_t * pgdir){
   lcr3(V2P(myproc()->pgdir)); //refresh CR3 register
 }
 
+static char buff[PGSIZE];
 /*
 * Retrieves the paged-out page which its va stored in cr2 from swapfile
 * Allocates new room in physical memory for the above purpose
@@ -528,7 +532,7 @@ int getPageFromFile(int cr2){
 
   struct proc* p = myproc();
   // This buffer used to store swapped-in page temporary
-  char buff[PGSIZE];
+  // char buff[PGSIZE];
 
   p->faultCounter++;
   int userPageVAddr = PGROUNDDOWN(cr2);
@@ -617,17 +621,32 @@ void updateAccessCounters(struct proc* p){
       p->ramCtrlr[i].accessTracker = p->ramCtrlr[i].accessTracker >> 1; // shift right by 1
       if(*pte & PTE_A){
         
-        p->ramCtrlr[i].accessTracker |= 0x80000000;                       // add bit 1 to MSB
+        *pte &= ~PTE_A; // turn off PTE_A flag
+        p->ramCtrlr[i].accessTracker |= 0x80000000; // add bit 1 to MSB
       }
       else{
-
+        p->ramCtrlr[i].accessTracker &= 0x7FFFFFFF;
       }
-      
-      *pte &= ~PTE_A; // turn off PTE_A flag
+
+      // cprintf("p->ramCtrlr[%d].accessTracker: %x\n", i, p->ramCtrlr[i].accessTracker);
     } 
   }
 }
 
+// void updateAccessCounters(struct proc * p){
+//   pte_t * pte;
+//   int i;
+//   for (i = 0; i < MAX_PSYC_PAGES; i++) {
+//     if (p->ramCtrlr[i].state == USED){
+//       pte = walkpgdir(p->ramCtrlr[i].pgdir, (char*)p->ramCtrlr[i].userPageVAddr,0);
+//       if (*pte & PTE_A) {
+//         *pte &= ~PTE_A; // turn off PTE_A flag
+//          p->ramCtrlr[i].accessTracker++;
+//          cprintf("p->ramCtrlr[%d].accessTracker: %d\n", i, p->ramCtrlr[i].accessTracker);
+//       }
+//     } 
+//   }
+// }
 
 void updateAdvQueues(struct proc* p){
   
@@ -721,6 +740,41 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   return newsz;
 }
 
+
+void removeFromRamCtrlr(uint userPageVAddr, pde_t *pgdir){
+  
+  struct proc* proc = myproc();
+
+  if (proc == 0)
+    return;
+  int i;
+  for (i = 0; i < MAX_PSYC_PAGES; i++) {
+    if (proc->ramCtrlr[i].state == USED 
+        && proc->ramCtrlr[i].userPageVAddr == userPageVAddr
+        && proc->ramCtrlr[i].pgdir == pgdir){
+      proc->ramCtrlr[i].state = NOTUSED;
+      return;
+    }
+  }
+}
+
+void removeFromFileCtrlr(uint userPageVAddr, pde_t *pgdir){
+
+  struct proc* proc = myproc();
+
+  if (proc == 0)
+    return;
+  int i;
+  for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++) {
+    if (proc->fileCtrlr[i].state == USED 
+        && proc->fileCtrlr[i].userPageVAddr == userPageVAddr
+        && proc->fileCtrlr[i].pgdir == pgdir){
+      proc->fileCtrlr[i].state = NOTUSED;
+      return;
+    }
+  }
+}
+
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -745,6 +799,9 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         panic("kfree");
       char *v = P2V(pa);
       kfree(v);
+      if (!isNONEpolicy())
+        removeFromRamCtrlr(a, pgdir);
+      
       *pte = 0;
     }
   }

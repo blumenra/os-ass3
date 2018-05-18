@@ -8,11 +8,21 @@
 #include "traps.h"
 #include "spinlock.h"
 
+
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
+
+
+int
+strcmp(const char *p, const char *q)
+{
+  while(*p && *p == *q)
+    p++, q++;
+  return (uchar)*p - (uchar)*q;
+}
 
 void
 tvinit(void)
@@ -54,7 +64,13 @@ trap(struct trapframe *tf)
       wakeup(&ticks);
       release(&tickslock);
 
+      #if NFUA
       updateAccessCountersForAll();
+      #endif
+      
+      // #if LAPA
+      // updateAccessCountersForAll();
+      // #endif
 
       #if AQ
         updateAdvQueuesForAll();
@@ -89,14 +105,19 @@ trap(struct trapframe *tf)
   */
   // If the interupt was from atempting to access paged out data..
   case T_PGFLT:
-    if (myproc() != 0 &&
-          (tf->cs&3) == 3 &&
-          pageIsInFile(rcr2(), myproc()->pgdir)){
-      if (getPageFromFile(rcr2())){
+    // panic("bla1");
+    // cprintf("rcr2(): %d\n", rcr2());
+    // procdump();
+
+    if (myproc() != 0 && (namecmp("sh", myproc()->name) != 0) && (namecmp("init", myproc()->name) != 0) &&
+      (tf->cs&3) == 3 && pageIsInFile(rcr2(), myproc()->pgdir)){
+      
+      if(getPageFromFile(rcr2())){
         break;
       }
     }
-
+    // panic("bla");
+    // break;
   //PAGEBREAK: 13
   default:
     if(myproc() == 0 || (tf->cs&3) == 0){
