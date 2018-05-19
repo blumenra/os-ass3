@@ -267,6 +267,9 @@ int getNFUA(void){
   int min = -1;
 
   for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+    
     if((min == -1) || (p->ramCtrlr[min].accessTracker > p->ramCtrlr[i].accessTracker)){
       min = i;
     }
@@ -283,6 +286,9 @@ int getLAPA(void){
   int min = -1;
 
   for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+
     if((min == -1) || (countNumOfOneBits(p->ramCtrlr[min].accessTracker) > countNumOfOneBits(p->ramCtrlr[i].accessTracker))){
       min = i;
     }
@@ -299,6 +305,9 @@ int getSCFIFO(void){
   int min = -1;
 
   for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+
     if((min == -1) || (p->ramCtrlr[min].loadOrder > p->ramCtrlr[i].loadOrder)){
       min = i;
     }
@@ -323,6 +332,9 @@ int getAQ(void){
   int min = -1;
 
   for(int i=0; i < MAX_PSYC_PAGES; i++){
+    if(p->ramCtrlr[i].state == NOTUSED)
+      continue;
+
     if((min == -1) || (p->ramCtrlr[min].advQueue > p->ramCtrlr[i].advQueue)){
       min = i;
     }
@@ -710,10 +722,11 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
   a = PGROUNDUP(oldsz);
 
-  int i = 0; //debugging
+  int i = 0;
   for(; a < newsz; a += PGSIZE){
     
     mem = kalloc();
+    i++;
     if(mem == 0){
       cprintf("allocuvm out of memory\n");
       deallocuvm(pgdir, newsz, oldsz);
@@ -857,6 +870,12 @@ copyuvm(pde_t *pgdir, uint sz)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
+
+    if (*pte & PTE_PG){
+      fixPagedOutPTE(i, d);
+      continue;
+    }
+
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
