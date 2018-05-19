@@ -102,6 +102,14 @@ found:
   sp -= sizeof *p->tf;
   p->tf = (struct trapframe*)sp;
 
+  //Our addition
+  p->loadOrderCounter = 0;
+  p->faultCounter = 0;
+  p->countOfPagedOut = 0;
+
+  if(p->pid > 2)
+    createSwapFile(p);
+
   // Set up new context to start executing at forkret,
   // which returns to trapret.
   sp -= 4;
@@ -348,6 +356,13 @@ wait(void)
         p->kstack = 0;
         freevm(p->pgdir);
         p->pid = 0;
+
+        // Our Addition
+        for (int i = 0; i < MAX_PSYC_PAGES; i++)
+          p->ramCtrlr[i].state = NOTUSED;
+        for (int i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++)
+          p->fileCtrlr[i].state = NOTUSED;
+
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
