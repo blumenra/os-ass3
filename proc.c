@@ -106,6 +106,7 @@ found:
   p->loadOrderCounter = 0;
   p->faultCounter = 0;
   p->countOfPagedOut = 0;
+  p->advQueueCounter = 0;
 
   if(p->pid > 2)
     createSwapFile(p);
@@ -208,7 +209,7 @@ fork(void)
 
   // Our Addition
   if (curproc->pid > 2){
-    copySwapFile(curproc, np);
+    copySwapFile(curproc, np); // Inherit swapfile content from father(curproc) to son(np)
     np->loadOrderCounter = curproc->loadOrderCounter;
     for (i = 0; i < MAX_PSYC_PAGES; i++){
       np->ramCtrlr[i] = curproc->ramCtrlr[i]; //deep copies ramCtrlr list
@@ -234,34 +235,24 @@ fork(void)
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
-  np->faultCounter = 0;
-  np->countOfPagedOut = 0;
 
-  // Our addition
-  // createSwapFile(np);
+  // Initialize accessTrackers of all pages on proc np to 0
+  int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
+  int initValue = 0;
 
-  // // Initialize accessTrackers of all pages on proc np to 0
-  // int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
-  // int initValue = 0;
+  #if NFUA
+    initValue = 0;
+  #endif
 
-  // #if NFUA
-  //   initValue = 0;
-  // #endif
+  #if LAPA
+    initValue = 0xFFFFFFFF;
+  #endif
 
-  // #if LAPA
-  //   initValue = 0xFFFFFFFF;
-  // #endif
-
-  // for(int i=0; i < MAX_PSYC_PAGES; i++)
-  //   np->ramCtrlr[i].accessTracker = initValue;
+  for(int i=0; i < MAX_PSYC_PAGES; i++)
+    np->ramCtrlr[i].accessTracker = initValue;
   
-  // for(int i=0; i < numOfPagesInFile; i++)
-  //   np->fileCtrlr[i].accessTracker = initValue;
-
-  // np->countOfPagedOut = 0;
-  // np->faultCounter = 0;
-  // np->loadOrderCounter = 0;
-  // np->advQueueCounter = 0;
+  for(int i=0; i < numOfPagesInFile; i++)
+    np->fileCtrlr[i].accessTracker = initValue;
 
 
   acquire(&ptable.lock);
@@ -614,6 +605,7 @@ procdump(void)
   int TotalPages = getTotalPages();
   cprintf("Used pages in the system: %d\n", TotalPages - freePages);
   cprintf("Free pages in the system: %d/%d", freePages, TotalPages);
+  cprintf("\n");
 }
 
 
