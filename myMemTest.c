@@ -2,54 +2,134 @@
 #include "stat.h"
 #include "user.h"
 #include "param.h"
+#include <math.h>
 
 #define PGSIZE      4096
 
 void miniTest2(int pagesAmount, int shouldSuccess);
 //actually malloc first allocates some pages (i saw 3) and then use it.
 
+/*
+* Allocates more than 16 pages to a process, which should invoke swap-outs
+* from ram to swapfile, and then frees them.
+*/
 void test1(void){
 
+	int testNum = 1;
+	printf(2, "TEST %d:\n", testNum);
+
 	int pagesAmount = 20;
-	printf(2, "myMem Tests:\n");
-    void* arr[pagesAmount];
+    void* mallocs[pagesAmount];
+
     int test1pid = fork();
-    if (test1pid == 0){ //child
-	    printf(2, "TEST 1:\n");
-	    printf(2, "test1: going to malloc with %d*%d nbytes.\n",pagesAmount, PGSIZE);
-	    for (int k=0; k<pagesAmount; k++){
-	    	printf(2,"%d: MALLOC ITERATION\n", k+1);
-	   		arr[k] = (void*)malloc(PGSIZE);
+    if (test1pid == 0){
+	    
+	    printf(2, "Starting to allocate %d pages..\n",pagesAmount, PGSIZE);
+	    for (int i=0; i<pagesAmount; i++){
+	    	printf(2,"Iteration num: %d\n", i+1);
+	   		mallocs[i] = (void*)malloc(PGSIZE);
 	    }
-	    printf(2, "going to free.\n");
-	    for (int k=0; k<pagesAmount; k++){ 
-	   		free(arr[k]);		
+	    printf(2, "Starting to free pages..\n");
+	    for (int i=0; i<pagesAmount; i++){ 
+	   		free(mallocs[i]);		
 	    }
 	    exit();
 	}
-	else 
-		wait(); //clean all the pages of test1pid
+	
+	wait();
 
-    printf(2, "FINISH TEST 1\n");    
-    printf(2, "Father (pid: %d) exit.\n", getpid());
-    exit();
-
+	printf(2, "TEST %d PASSED!\n\n", testNum);
 }
 
+/*
+* Checks memory allocating limits. Attempts of allocating too many pages
+* should cause a failure. (1 - should success, 0 - should NOT success)
+*/
 void test2(void){
 
 	int testNum = 2;
-	printf(2, "TEST %d:\n", testNum);
-	// miniTest2(20, 1);
-	// miniTest2(21, 1);
-	// miniTest2(22, 1);
-	// miniTest2(28, 1);
-	miniTest2(30, 1);
-	// miniTest2(31, 1);
-	// miniTest2(32, 1);
-	// miniTest2(33, 0);
-	// miniTest2(34, 0);
-    printf(2, "FINISH TEST %d\n", testNum);    
+	printf(1, "TEST %d:\n", testNum);
+	miniTest2(20, 1);
+	miniTest2(21, 1);
+	miniTest2(22, 1);
+	miniTest2(25, 1);
+
+	miniTest2(33, 0);
+	miniTest2(340, 0);
+
+	printf(2, "TEST %d PASSED!\n\n", testNum);
+}
+
+
+/*
+* Allocates more than 16 pages to a process, which should invoke swap-outs
+* from ram to swapfile, and then trying to access thoese pages. At last, frees them.
+*/
+void test3(){
+
+	int testNum = 3;
+	printf(1, "TEST %d:\n", testNum);
+
+	int memSize = 80000;
+    printf(2, "Allocating space in memory for %d bytes (%d pages)..\n", memSize, memSize/PGSIZE + 1);
+    char * malloced = malloc(memSize);
+    for (int i = 0; i < memSize; i++) {
+        malloced[i] = '@';
+    }
+
+    free(malloced);
+	printf(2, "TEST %d PASSED!\n\n", testNum);
+}
+
+
+/*
+* Checks swapfile content inheritance, by creating more then 16 pages which should invoke swap-outs
+* from ram to swapfile, and signing the pages with a unique number. Afterward, the test checks
+* that the above pages were inherited successfully to a child process using those numbers.
+* Also, it checks that child's page modifications does not effect fathers pages.
+*/
+void test4(){
+
+	int testNum = 4;
+	printf(1, "TEST %d:\n", testNum);
+
+
+	int pagesAmount = 17;
+    // char mallocs[pagesAmount][PGSIZE];
+    int memSize = pagesAmount*PGSIZE;
+    char* mallocs;
+    mallocs = malloc(memSize);
+	
+    for (int i=0; i < pagesAmount; i++){
+   		mallocs[i*PGSIZE] = i;
+    }
+
+	if(fork() == 0){
+		
+	    for (int i=0; i < pagesAmount; i++){
+	    	if(mallocs[i*PGSIZE] != i){
+	    		printf(1, "FAILED!%s\n");
+	    		return;
+	    	}
+	   		mallocs[i*PGSIZE] = i*10;
+	    }
+
+	    free(mallocs);
+	    exit();
+	}
+
+	wait();
+
+	for (int i=0; i < pagesAmount; i++){
+		if(mallocs[i*PGSIZE] != i){
+			printf(1, "FAILED!%s\n");
+			return;
+		}
+	}
+
+	free(mallocs);
+
+	printf(2, "TEST %d PASSED!\n\n", testNum);
 }
 
 void miniTest2(int pagesAmount, int shouldSuccess){
@@ -72,19 +152,20 @@ void miniTest2(int pagesAmount, int shouldSuccess){
 			else
 				printf(2, "TEST FAILED!\n");
 	    }
-	    	
+	    
+	    if(malloced != 0)
+	    	free(malloced);
+
 	    exit();
 	}
-	else 
-		wait(); //clean all the pages of test1pid
-
-    // printf(2, "Father (pid: %d) exit.\n", getpid());
-    exit();
+	
+	wait(); //clean all the pages of test1pid
 }
 
 void TEST(void (*test)(void)){
 	if(fork() == 0){
 		test();
+		exit();
 	}
 
 	wait();
@@ -92,11 +173,14 @@ void TEST(void (*test)(void)){
 
 int
 main(int argc, char *argv[]){
-    
+    printf(1, "Starting myMem Tests:\n");
+	
 	TEST(test1);
-	// TEST(test2);
+	TEST(test2);
+	TEST(test3);
+	TEST(test4);
 
-    exit();
+	exit();
 }
 
 
