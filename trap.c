@@ -65,12 +65,12 @@ trap(struct trapframe *tf)
       release(&tickslock);
 
       #if NFUA
-      updateAccessCountersForAll();
+        updateAccessCountersForAll();
       #endif
       
-      // #if LAPA
-      // updateAccessCountersForAll();
-      // #endif
+      #if LAPA
+        updateAccessCountersForAll();
+      #endif
 
       #if AQ
         updateAdvQueuesForAll();
