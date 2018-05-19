@@ -261,7 +261,7 @@ int getPageOutIndex(){
 
 int getNFUA(void){
 
-  cprintf("IM IN getNFUA!\n");
+  // cprintf("IM IN getNFUA!\n");
   struct proc* p = myproc();
 
   int min = -1;
@@ -275,7 +275,7 @@ int getNFUA(void){
     }
   }
 
-  cprintf("Returing min=%d from getNFUA", min);
+  // cprintf("Returing min=%d from getNFUA", min);
   return min;
 }
 
