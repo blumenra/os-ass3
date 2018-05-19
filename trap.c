@@ -109,7 +109,8 @@ trap(struct trapframe *tf)
     // cprintf("rcr2(): %d\n", rcr2());
     // procdump();
 
-    if (myproc() != 0 && (namecmp("sh", myproc()->name) != 0) && (namecmp("init", myproc()->name) != 0) &&
+    // if (myproc() != 0 && (namecmp("sh", myproc()->name) != 0) && (namecmp("init", myproc()->name) != 0) &&
+    if (myproc() != 0 &&
       (tf->cs&3) == 3 && pageIsInFile(rcr2(), myproc()->pgdir)){
       
       if(getPageFromFile(rcr2())){
