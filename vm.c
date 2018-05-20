@@ -450,8 +450,10 @@ int pageIsInFile(struct proc* p, int vAddr) {
 /*
 * Finds an available room for page in memory and returns its index
 */
+// int find_avail_index_in_ram_manger(struct proc* p) {
 int find_avail_index_in_ram_manger(struct proc* p) {
-
+  
+  // struct proc* p = myproc();
   if (p == 0)
     return -1;
 

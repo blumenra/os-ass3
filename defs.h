@@ -211,6 +211,7 @@ void            clearpteu(pde_t *pgdir, char *uva);
 int 			getPageFromFile(struct proc* p, int cr2);
 void 			swap(struct proc* p, pde_t *pgdir, uint vAddr);
 void 			add_page_to_ram(struct proc* p, pde_t *pgdir, uint vAddr);
+// int 			find_avail_index_in_ram_manger();
 int 			find_avail_index_in_ram_manger(struct proc* p);
 int 			pageIsInFile(struct proc* p, int vAddr);
 void 			fixPagedOutPTE(int vAddr, pde_t * pgdir);
