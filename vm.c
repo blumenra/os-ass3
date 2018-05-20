@@ -441,21 +441,22 @@ void fixPagedOutPTE(int vAddr, pde_t * pgdir){
 /*
 * Checks if page corresponding to vAddr is indeed in swapfile (e.g not in memory)
 */
-int pageIsInFile(int vAddr, pde_t * pgdir) {
+int pageIsInFile(struct proc* p, int vAddr) {
   pte_t *pte;
-  pte = walkpgdir(pgdir, (char *)vAddr, 0);
+  pte = walkpgdir(p->pgdir, (char *)vAddr, 0);
   return (*pte & PTE_PG); //PAGE IS IN FILE
 }
 
 /*
 * Finds an available room for page in memory and returns its index
 */
-int getFreeram_managerIndex() {
-  if (myproc() == 0)
+int find_avail_index_in_ram_manger(struct proc* p) {
+
+  if (p == 0)
     return -1;
-  int i;
-  for (i = 0; i < MAX_PSYC_PAGES; i++) {
-    if (myproc()->ram_manager[i].state == NOT_USED)
+
+  for (int i=0; i < MAX_PSYC_PAGES; i++) {
+    if (p->ram_manager[i].state == NOT_USED)
       return i;
   }
 
@@ -466,15 +467,13 @@ int getFreeram_managerIndex() {
 /*
 * Finds an available page in memory and updates its virtual address to vAddr, etc.
 */
-void addToram_manager(pde_t *pgdir, uint vAddr) {
+void add_page_to_ram(struct proc* p, pde_t *pgdir, uint vAddr) {
 
-  struct proc* p = myproc();
-
-  int freeLocation = getFreeram_managerIndex();
-  p->ram_manager[freeLocation].state = USED;
-  p->ram_manager[freeLocation].pgdir = pgdir;
-  p->ram_manager[freeLocation].vAddr = vAddr;
-  p->ram_manager[freeLocation].create_order = generate_creation_number(p);
+  int index = find_avail_index_in_ram_manger(p);
+  p->ram_manager[index].state = USED;
+  p->ram_manager[index].pgdir = pgdir;
+  p->ram_manager[index].vAddr = vAddr;
+  p->ram_manager[index].create_order = generate_creation_number(p);
 
   // Initialize access_trackers of all pages on proc np to 0
   int initValue = 0;
@@ -486,9 +485,9 @@ void addToram_manager(pde_t *pgdir, uint vAddr) {
   #if LAPA
     initValue = 0xFFFFFFFF;
   #endif
-  p->ram_manager[freeLocation].access_tracker = initValue;
+  p->ram_manager[index].access_tracker = initValue;
 
-  p->ram_manager[freeLocation].adv_queue = generate_adv_number(p);
+  p->ram_manager[index].adv_queue = generate_adv_number(p);
 }
 
 
@@ -499,10 +498,8 @@ void addToram_manager(pde_t *pgdir, uint vAddr) {
 * After that, 
 *
 */
-void swap(pde_t *pgdir, uint vAddr){
+void swap(struct proc *p, pde_t *pgdir, uint vAddr){
   
-  struct proc *p = myproc();
-
   p->paged_out_count++;
 
   // Get the index of page in memory which should be swapped out according to the policy
@@ -527,7 +524,7 @@ void swap(pde_t *pgdir, uint vAddr){
   fixPagedOutPTE(p->ram_manager[outIndex].vAddr, p->ram_manager[outIndex].pgdir);
 
   // Finds an available page in memory and updates its virtual address to be vAddr
-  addToram_manager(pgdir, vAddr);
+  add_page_to_ram(p, pgdir, vAddr);
 }
 
 /*
@@ -551,9 +548,8 @@ static char buff[PGSIZE];
 * Retrieves the paged-out page which its va stored in cr2 from swapfile
 * Allocates new room in physical memory for the above purpose
 */
-int getPageFromFile(int cr2){
+int getPageFromFile(struct proc* p, int cr2){
 
-  struct proc* p = myproc();
   // This buffer used to store swapped-in page temporary
   // char buff[PGSIZE];
 
@@ -567,7 +563,7 @@ int getPageFromFile(int cr2){
   memset(newPg, 0, PGSIZE);
 
   // Find available page room in memory and return its index in array
-  int outIndex = getFreeram_managerIndex();
+  int outIndex = find_avail_index_in_ram_manger(p);
 
   // Refresh CR3 register to avoid non-updated address access from TLB
   lcr3(V2P(p->pgdir));
@@ -623,7 +619,7 @@ int getPageFromFile(int cr2){
 /*
 * Checks if a policy was defined or not
 */
-int isNONEpolicy(){
+int check_NONE_policy(){
   #if NONE
     return 1;
   #endif
@@ -715,6 +711,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 {
   char *mem;
   uint a;
+  struct proc* p = myproc();
 
   if(newsz >= KERNBASE)
     return 0;
@@ -722,10 +719,9 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     return oldsz;
 
   // If any policy is defined..
-  if (!isNONEpolicy()){
+  if (!check_NONE_policy()){
     // If number of pages composing newsz exceeds MAX_TOTAL_PAGES and the current proc is NOT init or shell...
-    if (PGROUNDUP(newsz)/PGSIZE > MAX_TOTAL_PAGES && myproc()->pid > 2) {
-      cprintf("proc is too big\n", PGROUNDUP(newsz)/PGSIZE);
+    if (PGROUNDUP(newsz)/PGSIZE > MAX_TOTAL_PAGES && !is_shell_or_init(p)) {
       return 0;
     }
   }
@@ -733,11 +729,11 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
   a = PGROUNDUP(oldsz);
 
-  int i = 0;
+  int addPages = 0;
   for(; a < newsz; a += PGSIZE){
     
     mem = kalloc();
-    i++;
+    addPages++;
     if(mem == 0){
       cprintf("allocuvm out of memory\n");
       deallocuvm(pgdir, newsz, oldsz);
@@ -752,12 +748,12 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     }
 
     // If any policy is defined AND current proc is NOT init or shell...
-    if (!isNONEpolicy() && myproc()->pid > 2){
+    if (!check_NONE_policy() && !is_shell_or_init(p)){
       // If current proc cannot have more pages in memory (exceeds MAX_PSYC_PAGES)
-      if (PGROUNDUP(oldsz)/PGSIZE + i > MAX_PSYC_PAGES)
-        swap(pgdir, a);
+      if (PGROUNDUP(oldsz)/PGSIZE + addPages > MAX_PSYC_PAGES)
+        swap(p, pgdir, a);
       else //there's room
-        addToram_manager(pgdir, a);
+        add_page_to_ram(p, pgdir, a);
     }
   }
 
@@ -823,7 +819,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         panic("kfree");
       char *v = P2V(pa);
       kfree(v);
-      if (!isNONEpolicy())
+      if (!check_NONE_policy())
         removeFromram_manager(a, pgdir);
       
       *pte = 0;

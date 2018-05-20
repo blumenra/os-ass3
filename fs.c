@@ -867,18 +867,21 @@ int getFreeSlot(struct proc * p) {
   return -1; //file is full
 }
 
-void copySwapFile(struct proc* fromP, struct proc* toP){
+void clone_file(struct proc* src, struct proc* dest){
   
-  if (fromP->pid < 3)
+  if (is_shell_or_init(src))
     return;
+
   char buff[PGSIZE];
-  int i;
-  for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++){
-    if (fromP->file_manager[i].state == USED){
-      if (readFromSwapFile(fromP, buff, PGSIZE*i, PGSIZE) != PGSIZE)
-        panic("CopySwapFile error");
-      if (writeToSwapFile(toP, buff, PGSIZE*i, PGSIZE) != PGSIZE)
-        panic("CopySwapFile error");
+  for (int i=0; i < MAX_FILE_PAGES; i++){
+    if (src->file_manager[i].state == USED){
+      if (readFromSwapFile(src, buff, PGSIZE*i, PGSIZE) != PGSIZE)
+        panic("clone_file: error in reading from file");
+      
+      if (writeToSwapFile(dest, buff, PGSIZE*i, PGSIZE) != PGSIZE)
+        panic("clone_file: error in writing to file");
+
+      dest->file_manager[i].state = USED;
     }
   }
 }

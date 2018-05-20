@@ -55,7 +55,8 @@ trap(struct trapframe *tf)
       exit();
     return;
   }
-
+  
+  struct proc* p;
   switch(tf->trapno){
   case T_IRQ0 + IRQ_TIMER:
     if(cpuid() == 0){
@@ -110,10 +111,11 @@ trap(struct trapframe *tf)
     // procdump();
 
     // if (myproc() != 0 && (namecmp("sh", myproc()->name) != 0) && (namecmp("init", myproc()->name) != 0) &&
-    if (myproc() != 0 &&
-      (tf->cs&3) == 3 && pageIsInFile(rcr2(), myproc()->pgdir)){
+    p = myproc();
+    if (p != 0 &&
+      (tf->cs&3) == 3 && pageIsInFile(p, rcr2())){
       
-      if(getPageFromFile(rcr2())){
+      if(getPageFromFile(p, rcr2())){
         break;
       }
     }
