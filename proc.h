@@ -1,6 +1,7 @@
 
 #define MAX_PSYC_PAGES 16
 #define MAX_TOTAL_PAGES 32
+#define MAX_FILE_PAGES (MAX_TOTAL_PAGES - MAX_PSYC_PAGES)
 
 
 // Per-CPU state
@@ -38,16 +39,16 @@ struct context {
 };
 
 
-enum page_struct_state {NOTUSED, USED}; 
+enum page_state {NOT_USED, USED}; 
 
 // pages struct
-struct pagecontroller {
-  enum page_struct_state state;  
+struct page_struct {
+  enum page_state state;  
   pde_t* pgdir;
-  uint userPageVAddr;
-  uint accessTracker;
-  uint loadOrder;
-  int advQueue;
+  uint vAddr;
+  uint access_tracker;
+  uint create_order;
+  int adv_queue; // tracks the place in advance queue
 };
 
 
@@ -72,12 +73,12 @@ struct proc {
   //Swap file. must initiate with create swap file
   struct file *swapFile;      //page file
 
-  struct pagecontroller fileCtrlr[MAX_TOTAL_PAGES - MAX_PSYC_PAGES];
-  struct pagecontroller ramCtrlr[MAX_PSYC_PAGES];
-  uint countOfPagedOut;
-  uint faultCounter;
-  uint loadOrderCounter; // load/creation
-  int advQueueCounter;
+  struct page_struct file_manager[MAX_FILE_PAGES];
+  struct page_struct ram_manager[MAX_PSYC_PAGES];
+  uint paged_out_count;       // counts the general number page-out occured
+  uint page_fault_count;      // counts the general number of page fault times. page fault occurs when seeked page doesnt exist in the ram so we need to look for it in the file
+  uint create_order_counter;  // manages the creation number for the SCFIFO policy (every new page gets a new number which represents its place in queue)
+  int adv_queue_counter;      // manages the place number for the queue in AQ policy (every new page gets a new number which represents its place in queue)
 };
 
 // Process memory is laid out contiguously, low addresses first:

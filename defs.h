@@ -57,8 +57,8 @@ int				readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint si
 int				writeToSwapFile(struct proc* p, char* buffer, uint placeOnFile, uint size);
 int				removeSwapFile(struct proc* p);
 int 			getFreeSlot(struct proc * p);
-int 			writePageToFile(struct proc * p, int userPageVAddr, pde_t *pgdir);
-int 			readPageFromFile(struct proc * p, int ramCtrlrIndex, int userPageVAddr, char* buff);
+int 			writePageToFile(struct proc * p, int vAddr, pde_t *pgdir);
+int 			readPageFromFile(struct proc * p, int ram_managerIndex, int vAddr, char* buff);
 void 			copySwapFile(struct proc* fromP, struct proc* toP);
 
 // ide.c
@@ -132,9 +132,11 @@ void            wakeup(void*);
 void            yield(void);
 int 			isShellOrInit(struct proc* p);
 void 			updateAccessCountersForAll(void);
-void 			updateAdvQueuesForAll(void);
+void 			updateadv_queuesForAll(void);
 int 			getNumOfPagesInMem(struct proc* p);
 int 			getNumOfPagesInFile(struct proc* p);
+int 			generate_creation_number(struct proc* p);
+int 			generate_adv_number(struct proc* p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -206,17 +208,17 @@ int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 
 int 			getPageFromFile(int cr2);
-void 			swap(pde_t *pgdir, uint userPageVAddr);
-void 			addToRamCtrlr(pde_t *pgdir, uint userPageVAddr);
-int 			getFreeRamCtrlrIndex();
-int 			pageIsInFile(int userPageVAddr, pde_t * pgdir);
-void 			fixPagedOutPTE(int userPageVAddr, pde_t * pgdir);
-int 			getPagePAddr(int userPageVAddr, pde_t * pgdir);
+void 			swap(pde_t *pgdir, uint vAddr);
+void 			addToram_manager(pde_t *pgdir, uint vAddr);
+int 			getFreeram_managerIndex();
+int 			pageIsInFile(int vAddr, pde_t * pgdir);
+void 			fixPagedOutPTE(int vAddr, pde_t * pgdir);
+int 			getPagePAddr(int vAddr, pde_t * pgdir);
 int 			getPageOutIndex();
 int 			isNONEpolicy();
-void 			fixPagedInPTE(int userPageVAddr, int pagePAddr, pde_t * pgdir);
+void 			fixPagedInPTE(int vAddr, int pagePAddr, pde_t * pgdir);
 void 			updateAccessCounters(struct proc* p);
-void 			updateAdvQueues(struct proc* p);
+void 			updateadv_queues(struct proc* p);
 uint 			countNumOfOneBits(uint n);
 int 			findNextAdvPageIndex(struct proc* p, int boundery);
 int 			findMinAdvPageIndex(struct proc* p);

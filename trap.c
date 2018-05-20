@@ -73,7 +73,7 @@ trap(struct trapframe *tf)
       #endif
 
       #if AQ
-        updateAdvQueuesForAll();
+        updateadv_queuesForAll();
       #endif
     }
     lapiceoi();

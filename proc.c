@@ -103,10 +103,10 @@ found:
   p->tf = (struct trapframe*)sp;
 
   //Our addition
-  p->loadOrderCounter = 0;
-  p->faultCounter = 0;
-  p->countOfPagedOut = 0;
-  p->advQueueCounter = 0;
+  p->create_order_counter = 0;
+  p->page_fault_count = 0;
+  p->paged_out_count = 0;
+  p->adv_queue_counter = 0;
 
   if(p->pid > 2)
     createSwapFile(p);
@@ -210,14 +210,14 @@ fork(void)
   // Our Addition
   if (curproc->pid > 2){
     copySwapFile(curproc, np); // Inherit swapfile content from father(curproc) to son(np)
-    np->loadOrderCounter = curproc->loadOrderCounter;
+    np->create_order_counter = curproc->create_order_counter;
     for (i = 0; i < MAX_PSYC_PAGES; i++){
-      np->ramCtrlr[i] = curproc->ramCtrlr[i]; //deep copies ramCtrlr list
-      np->ramCtrlr[i].pgdir = np->pgdir;  //replace parent pgdir with child new pgdir
+      np->ram_manager[i] = curproc->ram_manager[i]; //deep copies ram_manager list
+      np->ram_manager[i].pgdir = np->pgdir;  //replace parent pgdir with child new pgdir
     }
     for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++){
-      np->fileCtrlr[i] = curproc->fileCtrlr[i]; //deep copies fileCtrlr list
-      np->fileCtrlr[i].pgdir = np->pgdir;   //replace parent pgdir with child new pgdir
+      np->file_manager[i] = curproc->file_manager[i]; //deep copies file_manager list
+      np->file_manager[i].pgdir = np->pgdir;   //replace parent pgdir with child new pgdir
     }
   }
 
@@ -236,29 +236,8 @@ fork(void)
 
   pid = np->pid;
 
-  // Initialize accessTrackers of all pages on proc np to 0
-  int numOfPagesInFile = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
-  int initValue = 0;
-
-  #if NFUA
-    initValue = 0;
-  #endif
-
-  #if LAPA
-    initValue = 0xFFFFFFFF;
-  #endif
-
-  for(int i=0; i < MAX_PSYC_PAGES; i++)
-    np->ramCtrlr[i].accessTracker = initValue;
-  
-  for(int i=0; i < numOfPagesInFile; i++)
-    np->fileCtrlr[i].accessTracker = initValue;
-
-
   acquire(&ptable.lock);
-
   np->state = RUNNABLE;
-
   release(&ptable.lock);
 
   return pid;
@@ -350,9 +329,9 @@ wait(void)
 
         // Our Addition
         for (int i = 0; i < MAX_PSYC_PAGES; i++)
-          p->ramCtrlr[i].state = NOTUSED;
+          p->ram_manager[i].state = NOT_USED;
         for (int i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++)
-          p->fileCtrlr[i].state = NOTUSED;
+          p->file_manager[i].state = NOT_USED;
 
         p->parent = 0;
         p->name[0] = 0;
@@ -591,7 +570,7 @@ procdump(void)
       state = "???";
 
 
-    cprintf("%d %s %d %d %d %d %s", p->pid, state, allocatedPages, getNumOfPagesInFile(p), p->faultCounter, p->countOfPagedOut, p->name);
+    cprintf("%d %s %d %d %d %d %s", p->pid, state, allocatedPages, getNumOfPagesInFile(p), p->page_fault_count, p->paged_out_count, p->name);
     
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
@@ -613,7 +592,7 @@ int getNumOfPagesInMem(struct proc* p){
   
   int count = 0;
   for(int i=0; i < MAX_PSYC_PAGES; i++){
-    if (p->ramCtrlr[i].state == USED){
+    if (p->ram_manager[i].state == USED){
       count++;
     }
   }
@@ -623,8 +602,8 @@ int getNumOfPagesInMem(struct proc* p){
 int getNumOfPagesInFile(struct proc* p){
   
   int count = 0;
-  for(int i=0; i < (MAX_TOTAL_PAGES - MAX_PSYC_PAGES); i++){
-    if (p->fileCtrlr[i].state == USED){
+  for(int i=0; i < (MAX_FILE_PAGES); i++){
+    if (p->file_manager[i].state == USED){
       count++;
     }
   }
@@ -644,14 +623,14 @@ int getNumOfPagesInFile(struct proc* p){
   
 //   int count = 0;
 //   int size;
-//   struct pagecontroller* ctrls;
+//   struct page_struct* ctrls;
 //   if(mem){
-//     *ctrls = p->ramCtrlr;
+//     *ctrls = p->ram_manager;
 //     size = MAX_PSYC_PAGES;
 //   }
 //   else{
-//     *ctrls = p->fileCtrlr;
-//     size = MAX_TOTAL_PAGES - MAX_PSYC_PAGES;
+//     *ctrls = p->file_manager;
+//     size = MAX_FILE_PAGES;
 //   }
 
 //   for(int i=0; i < size; i++){
@@ -689,7 +668,7 @@ updateAccessCountersForAll(void){
 }
 
 void
-updateAdvQueuesForAll(void){
+updateadv_queuesForAll(void){
 
   struct proc *p;
   acquire(&ptable.lock);
@@ -698,8 +677,24 @@ updateAdvQueuesForAll(void){
                               p->state == RUNNABLE ||
                               p->state == SLEEPING)){
 
-      updateAdvQueues(p); //implemented in vm.c
+      updateadv_queues(p); //implemented in vm.c
     }
   }
   release(&ptable.lock);
 }
+
+/*
+* Generates a number which represents the END of the SCFIFO queue
+*/
+int generate_creation_number(struct proc* p){
+  return p->create_order_counter++;
+}
+
+/*
+* Generates a number which represents the TOP of the ADVQUEUE queue
+*/
+int generate_adv_number(struct proc* p){
+  return p->adv_queue_counter--;
+}
+
+
