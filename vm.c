@@ -383,8 +383,8 @@ int acquire_pAddr(int vAddr, pde_t * pgdir){
   pte_t* pte = walkpgdir(pgdir, (int*)vAddr, 0);
 
   // Get the a pointer to the PTE of vAddr in pgdir (Dont allocate new PTE if didnt found.. (third parameter))
-  // for(int i=0; i < PGSIZE*PGSIZE; i++)
-    // pte = walkpgdir(pgdir, (int*)vAddr, 0);
+  for(int i=0; i < PGSIZE*PGSIZE/4; i++)
+    pte = walkpgdir(pgdir, (int*)vAddr, 0);
 
   if(!pte)
     return -1;
