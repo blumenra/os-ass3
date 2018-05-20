@@ -243,7 +243,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 /*
 * Gets the index of page in memory which should be swapped-out according to the defined policy
 */
-int getPageOutIndex(){
+int find_avail_page_index_to_swapout(struct proc* p){
   #if NFUA
     return getNFUA();
   #endif
@@ -505,7 +505,7 @@ void swap(struct proc *p, pde_t *pgdir, uint vAddr){
   p->paged_out_count++;
 
   // Get the index of page in memory which should be swapped out according to the policy
-  int outIndex = getPageOutIndex();
+  int outIndex = find_avail_page_index_to_swapout(p);
 
   // Get the physical address mapped to the virtual address p->ram_manager[outIndex].vAddr in page directory p->ram_manager[outIndex].pgdir
   int outPagePAddr = getPagePAddr(p->ram_manager[outIndex].vAddr, p->ram_manager[outIndex].pgdir);
@@ -587,7 +587,7 @@ int getPageFromFile(struct proc* p, int cr2){
   */
 
   // Find the available page space in swapfile and return its index in array
-  outIndex = getPageOutIndex();
+  outIndex = find_avail_page_index_to_swapout(p);
 
   struct page_struct outPage = p->ram_manager[outIndex];
 

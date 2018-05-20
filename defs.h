@@ -216,7 +216,7 @@ int 			find_avail_index_in_ram_manger(struct proc* p);
 int 			pageIsInFile(struct proc* p, int vAddr);
 void 			fixPagedOutPTE(int vAddr, pde_t * pgdir);
 int 			getPagePAddr(int vAddr, pde_t * pgdir);
-int 			getPageOutIndex();
+int 			find_avail_page_index_to_swapout(struct proc* p);
 int 			check_NONE_policy();
 void 			fixPagedInPTE(int vAddr, int pagePAddr, pde_t * pgdir);
 void 			updateAccessCounters(struct proc* p);
