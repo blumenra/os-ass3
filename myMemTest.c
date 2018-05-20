@@ -7,7 +7,7 @@
 #define PGSIZE      4096
 
 void miniTest2(int pagesAmount, int shouldSuccess);
-//actually malloc first allocates some pages (i saw 3) and then use it.
+void runTests();
 
 /*
 * Allocates more than 16 pages to a process, which should invoke swap-outs
@@ -58,6 +58,35 @@ void test2(void){
 	printf(2, "TEST %d PASSED!\n\n", testNum);
 }
 
+void miniTest2(int pagesAmount, int shouldSuccess){
+
+	void* malloced;
+    int test1pid = fork();
+    if (test1pid == 0){ //child
+	    printf(2, "going to malloc %d pages..\n", pagesAmount);
+  		malloced = (void*)malloc(PGSIZE*pagesAmount);
+	    
+	    if(shouldSuccess){
+			if(malloced == 0)
+				printf(2, "TEST FAILED!\n");
+			else
+				printf(2, "TEST PASSED!\n");
+	    }
+	    else{
+	    	if(malloced == 0)
+				printf(2, "TEST PASSED!\n");
+			else
+				printf(2, "TEST FAILED!\n");
+	    }
+	    
+	    if(malloced != 0)
+	    	free(malloced);
+
+	    exit();
+	}
+	
+	wait(); //clean all the pages of test1pid
+}
 
 /*
 * Allocates more than 16 pages to a process, which should invoke swap-outs
@@ -92,7 +121,7 @@ void test4(){
 	printf(1, "TEST %d:\n", testNum);
 
 
-	int pagesAmount = 17;
+	int pagesAmount = 3;
     // char mallocs[pagesAmount][PGSIZE];
     int memSize = pagesAmount*PGSIZE;
     char* mallocs;
@@ -130,35 +159,6 @@ void test4(){
 	printf(2, "TEST %d PASSED!\n\n", testNum);
 }
 
-void miniTest2(int pagesAmount, int shouldSuccess){
-
-	void* malloced;
-    int test1pid = fork();
-    if (test1pid == 0){ //child
-	    printf(2, "going to malloc %d pages..\n", pagesAmount);
-  		malloced = (void*)malloc(PGSIZE*pagesAmount);
-	    
-	    if(shouldSuccess){
-			if(malloced == 0)
-				printf(2, "TEST FAILED!\n");
-			else
-				printf(2, "TEST PASSED!\n");
-	    }
-	    else{
-	    	if(malloced == 0)
-				printf(2, "TEST PASSED!\n");
-			else
-				printf(2, "TEST FAILED!\n");
-	    }
-	    
-	    if(malloced != 0)
-	    	free(malloced);
-
-	    exit();
-	}
-	
-	wait(); //clean all the pages of test1pid
-}
 
 void TEST(void (*test)(void)){
 	if(fork() == 0){
@@ -169,14 +169,34 @@ void TEST(void (*test)(void)){
 	wait();
 }
 
+void runTestsNTimes(int n){
+
+	for(int i=0; i < n; i++){
+		printf(1, "***ITERATION %d***\n", i+1);
+		runTests();
+	}
+}
+
+void runTests(){
+	
+	if(fork() == 0){
+
+		TEST(test1);
+		TEST(test2);
+		TEST(test3);
+		TEST(test4);
+
+		exit();
+	}
+
+	wait();
+}
+
 int
 main(int argc, char *argv[]){
     printf(1, "Starting myMem Tests:\n");
 	
-	TEST(test1);
-	TEST(test2);
-	// TEST(test3);
-	TEST(test4);
+	runTests();
 
 	exit();
 }
