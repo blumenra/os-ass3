@@ -216,53 +216,27 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
   return 0;
 }
 
-// int getSCFIFO(){
-//   pte_t * pte;
-//   int i = 0;
-//   int pageIndex;
-//   uint create_order;
-
-// recheck:
-//   pageIndex = -1;
-//   create_order = 0xFFFFFFFF;
-//   for (i = 0; i < MAX_PYSC_PAGES; i++) {
-//     if (proc->ram_manager[i].state == USED && proc->ram_manager[i].create_order <= create_order){
-//       pageIndex = i;
-//       create_order = proc->ram_manager[i].create_order;
-//     }
-//   }
-//   pte = walkpgdir(proc->ram_manager[pageIndex].pgdir, (char*)proc->ram_manager[pageIndex].vAddr,0);
-//   if (*pte & PTE_A) {
-//     *pte &= ~PTE_A; // turn off PTE_A flag
-//      proc->ram_manager[pageIndex].create_order = proc->create_order_counter++;
-//      goto recheck;
-//   }
-//   return pageIndex;
-// }
 
 /*
 * Gets the index of page in memory which should be swapped-out according to the defined policy
 */
 int find_avail_page_index_to_swapout(struct proc* p){
   #if NFUA
-    return getNFUA();
+    return find_avail_index_by_NFUA(p);
   #endif
   #if LAPA
-    return getLAPA();
+    return find_avail_index_by_LAPA(p);
   #endif
   #if SCFIFO
-    return getSCFIFO();
+    return find_avail_index_by_SCFIFO(p);
   #endif
   #if AQ
-    return getAQ();
+    return find_avail_index_by_AQ(p);
   #endif
-  panic("Unrecognized paging machanism");
+  panic("find_avail_page_index_to_swapout: policy error");
 }
 
-int getNFUA(void){
-
-  // cprintf("IM IN getNFUA!\n");
-  struct proc* p = myproc();
+int find_avail_index_by_NFUA(struct proc* p){
 
   int min = -1;
 
@@ -275,13 +249,10 @@ int getNFUA(void){
     }
   }
 
-  // cprintf("Returing min=%d from getNFUA", min);
   return min;
 }
 
-int getLAPA(void){
-
-  struct proc* p = myproc();
+int find_avail_index_by_LAPA(struct proc* p){
 
   int min = -1;
 
@@ -298,9 +269,8 @@ int getLAPA(void){
 }
 
 
-int getSCFIFO(void){
+int find_avail_index_by_SCFIFO(struct proc* p){
 
-  struct proc* p = myproc();
   pte_t* pte;
   int min = -1;
 
@@ -319,15 +289,13 @@ int getSCFIFO(void){
   if (*pte & PTE_A) {
     *pte &= ~PTE_A; // turn off PTE_A flag
      p->ram_manager[min].create_order = generate_creation_number(p); // update page's create_order to be the highest (treat it like it was just created)
-     return getSCFIFO();
+     return find_avail_index_by_SCFIFO(p);
   }
 
   return min;
 }
 
-int getAQ(void){
-
-  struct proc* p = myproc();
+int find_avail_index_by_AQ(struct proc* p){
 
   int min = -1;
 
@@ -393,7 +361,7 @@ int findMinAdvPageIndex(struct proc* p){
   return findNextAdvPageIndex(p, 0xFFFFFFFF);
 }
 
-void swapadv_queue(struct proc* p, int priorPageIndex, int afterPageIndex){
+void swap_adv_queue(struct proc* p, int priorPageIndex, int afterPageIndex){
 
   int tmpTurn = 0;
   tmpTurn = p->ram_manager[priorPageIndex].adv_queue;
@@ -408,14 +376,17 @@ int isPageAccessed(struct proc* p, int index){
 }
 
 /*
-* Returns the pysical address mapped to the virtual address vAddr
+* Returns the pysical address mapped to the virtual address vAddr in the page-dir
 */
-int getPagePAddr(int vAddr, pde_t * pgdir){
+int acquire_pAddr(int vAddr, pde_t * pgdir){
 
-  // Get the a pointer to the PTE of vAddr in pgdir (Dont allocate new PTE if didnt found.. (third parameter))
   pte_t* pte = walkpgdir(pgdir, (int*)vAddr, 0);
 
-  if(!pte) //uninitialized page table
+  // Get the a pointer to the PTE of vAddr in pgdir (Dont allocate new PTE if didnt found.. (third parameter))
+  // for(int i=0; i < PGSIZE*PGSIZE; i++)
+    // pte = walkpgdir(pgdir, (int*)vAddr, 0);
+
+  if(!pte)
     return -1;
 
   return PTE_ADDR(*pte);
@@ -424,27 +395,28 @@ int getPagePAddr(int vAddr, pde_t * pgdir){
 /*
 * Change PTE flags properly after swapping-out vAddr
 */
-void fixPagedOutPTE(int vAddr, pde_t * pgdir){
+void update_pageOUT_pte_flags(struct proc* p, int vAddr, pde_t * pgdir){
   
-  struct proc* p = myproc();
+  // struct proc* p = myproc();
   
-  pte_t *pte;
-  pte = walkpgdir(pgdir, (int*)vAddr, 0);
+  pte_t *pte = walkpgdir(pgdir, (int*)vAddr, 0);
   if (!pte)
-    panic("PTE of swapped page is missing");
-  *pte |= PTE_PG; // Inidicates that the page was Paged-out to secondary storage
-  *pte &= ~PTE_P; // Indicates that the page is NOT in physical memory
-  *pte &= PTE_FLAGS(*pte); //clear junk physical address
-  lcr3(V2P(p->pgdir)); //refresh CR3 register (TLB (cache))
+    panic("update_pageOUT_pte_flags: pte does NOT exist in pgdir");
+
+  *pte |= PTE_PG;           // Inidicates that the page was Paged-out to secondary storage
+  *pte &= ~PTE_P;           // Indicates that the page is NOT in physical memory
+  *pte &= PTE_FLAGS(*pte);
+  
+  lcr3(V2P(p->pgdir));      // Refresh CR3 register (TLB (cache))
 }
 
 /*
 * Checks if page corresponding to vAddr is indeed in swapfile (e.g not in memory)
 */
-int pageIsInFile(struct proc* p, int vAddr) {
+int is_page_in_file(struct proc* p, int vAddr) {
   pte_t *pte;
   pte = walkpgdir(p->pgdir, (char *)vAddr, 0);
-  return (*pte & PTE_PG); //PAGE IS IN FILE
+  return (*pte & PTE_PG);
 }
 
 /*
@@ -505,25 +477,25 @@ void swap(struct proc *p, pde_t *pgdir, uint vAddr){
   p->paged_out_count++;
 
   // Get the index of page in memory which should be swapped out according to the policy
-  int outIndex = find_avail_page_index_to_swapout(p);
+  int page_index = find_avail_page_index_to_swapout(p);
 
-  // Get the physical address mapped to the virtual address p->ram_manager[outIndex].vAddr in page directory p->ram_manager[outIndex].pgdir
-  int outPagePAddr = getPagePAddr(p->ram_manager[outIndex].vAddr, p->ram_manager[outIndex].pgdir);
+  // Get the physical address mapped to the virtual address p->ram_manager[page_index].vAddr in page directory p->ram_manager[page_index].pgdir
+  int page_phys_addr = acquire_pAddr(p->ram_manager[page_index].vAddr, p->ram_manager[page_index].pgdir);
 
-  // Swap-out page starting in p->ram_manager[outIndex].vAddr
-  writePageToFile(p, p->ram_manager[outIndex].vAddr, p->ram_manager[outIndex].pgdir);
+  // Swap-out page starting in p->ram_manager[page_index].vAddr
+  page_out(p, p->ram_manager[page_index].vAddr, p->ram_manager[page_index].pgdir);
   
   // Converts physical address to virtual address
-  char *v = (char*)P2V(outPagePAddr);
+  char *va = (char*)P2V(page_phys_addr);
   
   //free swapped-out page
-  kfree(v);
+  kfree(va);
 
   // Change state of swapped-out page in MEMORY to UNUSED
-  p->ram_manager[outIndex].state = NOT_USED;
+  p->ram_manager[page_index].state = NOT_USED;
 
   // Fix PTE flags properly after swapping-out vAddr
-  fixPagedOutPTE(p->ram_manager[outIndex].vAddr, p->ram_manager[outIndex].pgdir);
+  update_pageOUT_pte_flags(p, p->ram_manager[page_index].vAddr, p->ram_manager[page_index].pgdir);
 
   // Finds an available page in memory and updates its virtual address to be vAddr
   add_page_to_ram(p, pgdir, vAddr);
@@ -532,51 +504,53 @@ void swap(struct proc *p, pde_t *pgdir, uint vAddr){
 /*
 * Updates PTE flags of vAddr after swapping-in a page
 */
-void fixPagedInPTE(int vAddr, int pagePAddr, pde_t * pgdir){
-  pte_t *pte;
-  pte = walkpgdir(pgdir, (int*)vAddr, 0);
+void update_pageIN_pte_flags(struct proc* p, int vAddr, int pagePAddr, pde_t * pgdir){
+  
+  pte_t *pte = walkpgdir(pgdir, (int*)vAddr, 0);
+  
   if (!pte)
-    panic("PTE of swapped page is missing");
+    panic("update_pageIN_pte_flags: pte does NOT exist in pgdir");
+
   if (*pte & PTE_P)
-    panic("PAGE IN REMAP!");
+    panic("update_pageIN_pte_flags: page is already in memory!");
+  
   *pte |= PTE_P | PTE_W | PTE_U;      //Turn on needed bits
   *pte &= ~PTE_PG;                    //Turn off inFile bit
   *pte |= pagePAddr;                  //Map PTE to the new Page
-  lcr3(V2P(myproc()->pgdir)); //refresh CR3 register
+  lcr3(V2P(p->pgdir)); //refresh CR3 register
 }
 
 static char buff[PGSIZE];
 /*
-* Retrieves the paged-out page which its va stored in cr2 from swapfile
-* Allocates new room in physical memory for the above purpose
+* Reads a page corresponding to page_index from swapfile,
+* Allocates new room in physical memory for it and writes it into memory
 */
-int getPageFromFile(struct proc* p, int cr2){
+int swap_in(struct proc* p, int page_index){
 
   // This buffer used to store swapped-in page temporary
-  // char buff[PGSIZE];
 
   p->page_fault_count++;
-  int vAddr = PGROUNDDOWN(cr2);
+  int vAddr = PGROUNDDOWN(page_index);
 
   // Allocate new space in memory of page size for the swapping-in page
-  char * newPg = kalloc();
+  char* new_allocated_page = kalloc();
 
   // Initialize the allocated page in memory with 0
-  memset(newPg, 0, PGSIZE);
+  memset(new_allocated_page, 0, PGSIZE);
 
   // Find available page room in memory and return its index in array
-  int outIndex = find_avail_index_in_ram_manger(p);
+  int avail_index_page_in_ram = find_avail_index_in_ram_manger(p);
 
   // Refresh CR3 register to avoid non-updated address access from TLB
   lcr3(V2P(p->pgdir));
 
   // If there is a room for a new page in memory..
-  if (outIndex >= 0) {
-    // Update PTE flags and map vAddr to the physical address newPg
-    fixPagedInPTE(vAddr, V2P(newPg), p->pgdir);
+  if (avail_index_page_in_ram >= 0) {
+    // Update PTE flags and map vAddr to the physical address new_allocated_page
+    update_pageIN_pte_flags(p, vAddr, V2P(new_allocated_page), p->pgdir);
 
     // Find the relevant page (with vAddr) in swapfile, and write its content in the new allocated address in memory
-    readPageFromFile(p, outIndex, vAddr, (char*)vAddr);
+    page_in(p, avail_index_page_in_ram, vAddr, (char*)vAddr);
 
     return 1; //Operation was successful
   }
@@ -587,27 +561,27 @@ int getPageFromFile(struct proc* p, int cr2){
   */
 
   // Find the available page space in swapfile and return its index in array
-  outIndex = find_avail_page_index_to_swapout(p);
+  avail_index_page_in_ram = find_avail_page_index_to_swapout(p);
 
-  struct page_struct outPage = p->ram_manager[outIndex];
+  struct page_struct outPage = p->ram_manager[avail_index_page_in_ram];
 
   // Find the relevant page (with vAddr) in swapfile, and write its content in the new allocated address in memory
-  fixPagedInPTE(vAddr, V2P(newPg), p->pgdir);
+  update_pageIN_pte_flags(p, vAddr, V2P(new_allocated_page), p->pgdir);
 
   // Find the relevant page (with vAddr) in swapfile, and write its content on buff temporary
-  readPageFromFile(p, outIndex, vAddr, buff);
+  page_in(p, avail_index_page_in_ram, vAddr, buff);
 
   // Get the corresponding physical address of outPage.vAddr
-  int outPagePAddr = getPagePAddr(outPage.vAddr, outPage.pgdir);
+  int outPagePAddr = acquire_pAddr(outPage.vAddr, outPage.pgdir);
 
-  // Writes buff into newPg, in other words reads the page from swapfile to physical memory
-  memmove(newPg, buff, PGSIZE);
+  // Writes buff into new_allocated_page, in other words reads the page from swapfile to physical memory
+  memmove(new_allocated_page, buff, PGSIZE);
 
   // Write the swapped-out page from memory to swapfile
-  writePageToFile(p, outPage.vAddr, outPage.pgdir);
+  page_out(p, outPage.vAddr, outPage.pgdir);
 
   // Update outPage.vAddr PTE flags for proper to swapping-out
-  fixPagedOutPTE(outPage.vAddr, outPage.pgdir);
+  update_pageOUT_pte_flags(p, outPage.vAddr, outPage.pgdir);
 
   // Get the corresponding physical address of the swapped-out page's virtual address
   char *v = (char*)P2V(outPagePAddr);
@@ -621,7 +595,7 @@ int getPageFromFile(struct proc* p, int cr2){
 /*
 * Checks if a policy was defined or not
 */
-int check_NONE_policy(){
+int check_NONE_policy(void){
   #if NONE
     return 1;
   #endif
@@ -632,7 +606,7 @@ int check_NONE_policy(){
 * Updates the accessCouter field of all used pages of process p,
 * according to their PTE_A flag (which turned on when access to page ocurred)
 */
-void updateAccessCounters(struct proc* p){
+void update_access_trackers(struct proc* p){
   pte_t * pte;
   int i;
   for (i = 0; i < MAX_PSYC_PAGES; i++) {
@@ -648,28 +622,12 @@ void updateAccessCounters(struct proc* p){
       else{
         p->ram_manager[i].access_tracker &= 0x7FFFFFFF;
       }
-
-      // cprintf("p->ram_manager[%d].access_tracker: %x\n", i, p->ram_manager[i].access_tracker);
     } 
   }
 }
 
-// void updateAccessCounters(struct proc * p){
-//   pte_t * pte;
-//   int i;
-//   for (i = 0; i < MAX_PSYC_PAGES; i++) {
-//     if (p->ram_manager[i].state == USED){
-//       pte = walkpgdir(p->ram_manager[i].pgdir, (char*)p->ram_manager[i].vAddr,0);
-//       if (*pte & PTE_A) {
-//         *pte &= ~PTE_A; // turn off PTE_A flag
-//          p->ram_manager[i].access_tracker++;
-//          cprintf("p->ram_manager[%d].access_tracker: %d\n", i, p->ram_manager[i].access_tracker);
-//       }
-//     } 
-//   }
-// }
 
-void updateadv_queues(struct proc* p){
+void update_adv_queues(struct proc* p){
   
   int priorPageIndex = -1;
   int afterPageIndex = -1;
@@ -682,22 +640,12 @@ void updateadv_queues(struct proc* p){
       
       priorPageIndex = findNextAQPageIndex(p, priorPageIndex);
     }
-    // else if(afterPageIndex == -1){
-    //   afterPageIndex = findNextAQPageIndex(p, priorPageIndex);
-    //   if(isPageAccessed(p, afterPageIndex) &&
-    //     !isPageAccessed(p, priorPageIndex)){
-
-    //     swapadv_queue(p, afterPageIndex, priorPageIndex);
-    //   }
-
-    //   priorPageIndex = afterPageIndex;
-    // }
     else{
       afterPageIndex = findNextAQPageIndex(p, priorPageIndex);
       if(isPageAccessed(p, afterPageIndex) &&
         !isPageAccessed(p, priorPageIndex)){
 
-        swapadv_queue(p, afterPageIndex, priorPageIndex);
+        swap_adv_queue(p, afterPageIndex, priorPageIndex);
       }
 
       priorPageIndex = afterPageIndex;
@@ -763,39 +711,22 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 }
 
 
-void removeFromram_manager(uint vAddr, pde_t *pgdir){
+void remove_page_from_ram(struct proc* p, uint vAddr, pde_t *pgdir){
   
-  struct proc* proc = myproc();
-
-  if (proc == 0)
+  if (p == 0)
     return;
+
   int i;
   for (i = 0; i < MAX_PSYC_PAGES; i++) {
-    if (proc->ram_manager[i].state == USED 
-        && proc->ram_manager[i].vAddr == vAddr
-        && proc->ram_manager[i].pgdir == pgdir){
-      proc->ram_manager[i].state = NOT_USED;
+    if (p->ram_manager[i].state == USED 
+        && p->ram_manager[i].vAddr == vAddr
+        && p->ram_manager[i].pgdir == pgdir){
+      p->ram_manager[i].state = NOT_USED;
       return;
     }
   }
 }
 
-void removeFromfile_manager(uint vAddr, pde_t *pgdir){
-
-  struct proc* proc = myproc();
-
-  if (proc == 0)
-    return;
-  int i;
-  for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++) {
-    if (proc->file_manager[i].state == USED 
-        && proc->file_manager[i].vAddr == vAddr
-        && proc->file_manager[i].pgdir == pgdir){
-      proc->file_manager[i].state = NOT_USED;
-      return;
-    }
-  }
-}
 
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
@@ -804,6 +735,11 @@ void removeFromfile_manager(uint vAddr, pde_t *pgdir){
 int
 deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 {
+  struct proc* p = myproc();
+
+  if(p == 0)
+    return oldsz;
+  
   pte_t *pte;
   uint a, pa;
 
@@ -822,7 +758,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       char *v = P2V(pa);
       kfree(v);
       if (!check_NONE_policy())
-        removeFromram_manager(a, pgdir);
+        remove_page_from_ram(p, a, pgdir);
       
       *pte = 0;
     }
@@ -867,6 +803,10 @@ clearpteu(pde_t *pgdir, char *uva)
 pde_t*
 copyuvm(pde_t *pgdir, uint sz)
 {
+  struct proc* p = myproc();
+  if(p == 0)
+    return 0;
+
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
@@ -879,7 +819,7 @@ copyuvm(pde_t *pgdir, uint sz)
       panic("copyuvm: pte should exist");
     
     if (*pte & PTE_PG){
-      fixPagedOutPTE(i, d);
+      update_pageOUT_pte_flags(p, i, d);
       continue;
     }
 

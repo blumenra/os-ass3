@@ -56,9 +56,9 @@ int				createSwapFile(struct proc* p);
 int				readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size);
 int				writeToSwapFile(struct proc* p, char* buffer, uint placeOnFile, uint size);
 int				removeSwapFile(struct proc* p);
-int 			getFreeSlot(struct proc * p);
-int 			writePageToFile(struct proc * p, int vAddr, pde_t *pgdir);
-int 			readPageFromFile(struct proc * p, int ram_managerIndex, int vAddr, char* buff);
+int 			find_avail_page_index_in_file(struct proc * p);
+int 			page_out(struct proc * p, int vAddr, pde_t *pgdir);
+int 			page_in(struct proc * p, int ram_managerIndex, int vAddr, char* buff);
 void 			clone_file(struct proc* fromP, struct proc* toP);
 
 // ide.c
@@ -131,8 +131,8 @@ int             wait(void);
 void            wakeup(void*);
 void            yield(void);
 int 			is_shell_or_init(struct proc* p);
-void 			updateAccessCountersForAll(void);
-void 			updateadv_queuesForAll(void);
+void 			update_access_trackers_for_all(void);
+void 			update_adv_queues_for_all(void);
 int 			getNumOfPagesInMem(struct proc* p);
 int 			getNumOfPagesInFile(struct proc* p);
 int 			generate_creation_number(struct proc* p);
@@ -208,26 +208,25 @@ void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 
-int 			getPageFromFile(struct proc* p, int cr2);
+int 			swap_in(struct proc* p, int cr2);
 void 			swap(struct proc* p, pde_t *pgdir, uint vAddr);
 void 			add_page_to_ram(struct proc* p, pde_t *pgdir, uint vAddr);
-// int 			find_avail_index_in_ram_manger();
 int 			find_avail_index_in_ram_manger(struct proc* p);
-int 			pageIsInFile(struct proc* p, int vAddr);
-void 			fixPagedOutPTE(int vAddr, pde_t * pgdir);
-int 			getPagePAddr(int vAddr, pde_t * pgdir);
+int 			is_page_in_file(struct proc* p, int vAddr);
+void 			update_pageOUT_pte_flags(struct proc* p, int vAddr, pde_t * pgdir);
+int 			acquire_pAddr(int vAddr, pde_t * pgdir);
 int 			find_avail_page_index_to_swapout(struct proc* p);
-int 			check_NONE_policy();
-void 			fixPagedInPTE(int vAddr, int pagePAddr, pde_t * pgdir);
-void 			updateAccessCounters(struct proc* p);
-void 			updateadv_queues(struct proc* p);
+int 			check_NONE_policy(void);
+void 			update_pageIN_pte_flags(struct proc* p, int vAddr, int pagePAddr, pde_t * pgdir);
+void 			update_access_trackers(struct proc* p);
+void 			update_adv_queues(struct proc* p);
 uint 			countNumOfOneBits(uint n);
 int 			findNextAdvPageIndex(struct proc* p, int boundery);
 int 			findMinAdvPageIndex(struct proc* p);
-int 			getAQ(void);
-int 			getSCFIFO(void);
-int 			getLAPA(void);
-int 			getNFUA(void);
+int 			find_avail_index_by_AQ(struct proc* p);
+int 			find_avail_index_by_SCFIFO(struct proc* p);
+int 			find_avail_index_by_LAPA(struct proc* p);
+int 			find_avail_index_by_NFUA(struct proc* p);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

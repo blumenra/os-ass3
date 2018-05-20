@@ -266,10 +266,10 @@ exit(void)
       curproc->ofile[fd] = 0;
     }
   }
-  if(curproc->pid > 2){
-    removeSwapFile(curproc);
-    // if (removeSwapFile(curproc) != 0)
-    //   panic("exit: error deleting swap file");
+  if(!is_shell_or_init(curproc)){
+    // removeSwapFile(curproc);
+    if (removeSwapFile(curproc) != 0)
+      panic("exit: error deleting swap file");
   }
 
   begin_op();
@@ -612,36 +612,6 @@ int getNumOfPagesInFile(struct proc* p){
 }
 
 
-// int getNumOfPagesInMem(struct proc* p){
-//   getNumOfPages(p, 1);
-// }
-
-// int getNumOfPagesInFile(struct proc* p){
-//   getNumOfPages(p, 0);
-// }
-
-// int getNumOfPages(struct proc* p, int mem){
-  
-//   int count = 0;
-//   int size;
-//   struct page_struct* ctrls;
-//   if(mem){
-//     *ctrls = p->ram_manager;
-//     size = MAX_PSYC_PAGES;
-//   }
-//   else{
-//     *ctrls = p->file_manager;
-//     size = MAX_FILE_PAGES;
-//   }
-
-//   for(int i=0; i < size; i++){
-//     if ((*ctrls)[i].state == USED){
-//       count++;
-//     }
-//   }
-
-//   return count;
-// }
 
 int
 is_shell_or_init(struct proc* p){
@@ -653,7 +623,7 @@ is_shell_or_init(struct proc* p){
 }
 
 void
-updateAccessCountersForAll(void){
+update_access_trackers_for_all(void){
 
   struct proc *p;
   acquire(&ptable.lock);
@@ -662,14 +632,14 @@ updateAccessCountersForAll(void){
     //                           p->state == RUNNABLE ||
     //                           p->state == SLEEPING)){
     if(p->pid > 2 && p->state > 1 && p->state < 5){
-      updateAccessCounters(p); //implemented in vm.c
+      update_access_trackers(p); //implemented in vm.c
     }
   }
   release(&ptable.lock);
 }
 
 void
-updateadv_queuesForAll(void){
+update_adv_queues_for_all(void){
 
   struct proc *p;
   acquire(&ptable.lock);
@@ -678,7 +648,7 @@ updateadv_queuesForAll(void){
                               p->state == RUNNABLE ||
                               p->state == SLEEPING)){
 
-      updateadv_queues(p); //implemented in vm.c
+      update_adv_queues(p); //implemented in vm.c
     }
   }
   release(&ptable.lock);

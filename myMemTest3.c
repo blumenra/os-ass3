@@ -120,7 +120,7 @@ multiple_processes_test()
         arr2[60000-i] = '#';
     }
 
-    arr2[60000] = 0;
+    arr2[60001] = 0;
     if (fork() > 0){
         wait();
         printf(2, "Parent\n");

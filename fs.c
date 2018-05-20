@@ -812,20 +812,19 @@ readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size)
 /*
 * Reads from page in swapfile corresponding to vAddr into buff
 */
-int readPageFromFile(struct proc* p, int ram_managerIndex, int vAddr, char* buff) {
-  int maxStructCount = (MAX_FILE_PAGES);
-  int i;
-  int retInt;
-  for (i = 0; i < maxStructCount; i++) {
+int page_in(struct proc* p, int ram_managerIndex, int vAddr, char* buff) {
+
+  int ret = -1;
+  for (int i=0; i < MAX_FILE_PAGES; i++) {
     if (p->file_manager[i].vAddr == vAddr) {
-      retInt = readFromSwapFile(p, buff, i*PGSIZE, PGSIZE);
-      if (retInt == -1)
+      ret = readFromSwapFile(p, buff, i*PGSIZE, PGSIZE);
+      if (ret == -1)
         break; //error in read
       p->ram_manager[ram_managerIndex] = p->file_manager[i];
       p->ram_manager[ram_managerIndex].create_order = generate_creation_number(p);
       p->ram_manager[ram_managerIndex].adv_queue = generate_adv_number(p);
       p->file_manager[i].state = NOT_USED;
-      return retInt;
+      return ret;
     }
   }
   //if reached here - physical address given is not paged out (not found)
@@ -837,34 +836,35 @@ int readPageFromFile(struct proc* p, int ram_managerIndex, int vAddr, char* buff
 /*
 * Writes a page in memory starting from vAddr to a available place in file
 */
-int writePageToFile(struct proc * p, int vAddr, pde_t *pgdir) {
+int page_out(struct proc * p, int vAddr, pde_t *pgdir) {
   
   // Get an index of an available place in swapfile of proc p
-  int freePlace = getFreeSlot(p);
+  int index = find_avail_page_index_in_file(p);
   
-  int retInt = writeToSwapFile(p, (char*)vAddr, PGSIZE*freePlace, PGSIZE);
-  if (retInt == -1)
+  if(writeToSwapFile(p, (char*)vAddr, PGSIZE*index, PGSIZE) == -1)
     return -1;
   
-  p->file_manager[freePlace].pgdir = pgdir;
-  p->file_manager[freePlace].vAddr = vAddr;
-  p->file_manager[freePlace].create_order = 0;
-  p->file_manager[freePlace].access_tracker = 0;
-  p->file_manager[freePlace].state = USED;
-  return retInt;
+  p->file_manager[index].pgdir = pgdir;
+  p->file_manager[index].vAddr = vAddr;
+  p->file_manager[index].create_order = 0;
+  p->file_manager[index].access_tracker = 0;
+  p->file_manager[index].state = USED;
+  
+  return index;
 }
 
 /*
 * Finds an unused page space in swapfile and returns its index
 */
-int getFreeSlot(struct proc * p) {
-  int maxStructCount = (MAX_FILE_PAGES);
-  int i;
-  for (i = 0; i < maxStructCount; i++) {
+int find_avail_page_index_in_file(struct proc * p) {
+  
+  for (int i=0; i < MAX_FILE_PAGES; i++) {
     if (p->file_manager[i].state == NOT_USED)
       return i;
   }
-  return -1; //file is full
+
+  // If got here then file is full
+  return -1;
 }
 
 void clone_file(struct proc* src, struct proc* dest){
@@ -885,3 +885,6 @@ void clone_file(struct proc* src, struct proc* dest){
     }
   }
 }
+
+
+

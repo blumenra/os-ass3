@@ -66,15 +66,15 @@ trap(struct trapframe *tf)
       release(&tickslock);
 
       #if NFUA
-        updateAccessCountersForAll();
+        update_access_trackers_for_all();
       #endif
       
       #if LAPA
-        updateAccessCountersForAll();
+        update_access_trackers_for_all();
       #endif
 
       #if AQ
-        updateadv_queuesForAll();
+        update_adv_queues_for_all();
       #endif
     }
     lapiceoi();
@@ -106,16 +106,12 @@ trap(struct trapframe *tf)
   */
   // If the interupt was from atempting to access paged out data..
   case T_PGFLT:
-    // panic("bla1");
-    // cprintf("rcr2(): %d\n", rcr2());
-    // procdump();
 
-    // if (myproc() != 0 && (namecmp("sh", myproc()->name) != 0) && (namecmp("init", myproc()->name) != 0) &&
     p = myproc();
-    if (p != 0 &&
-      (tf->cs&3) == 3 && pageIsInFile(p, rcr2())){
+    if (p != 0 && !is_shell_or_init(p) &&
+      (tf->cs&3) == 3 && is_page_in_file(p, rcr2())){
       
-      if(getPageFromFile(p, rcr2())){
+      if(swap_in(p, rcr2())){
         break;
       }
     }
