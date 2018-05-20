@@ -103,13 +103,15 @@ found:
   p->tf = (struct trapframe*)sp;
 
   //Our addition
-  p->create_order_counter = 0;
   p->page_fault_count = 0;
   p->paged_out_count = 0;
+  p->create_order_counter = 0;
   p->adv_queue_counter = 0;
 
-  if(p->pid > 2)
+  if(!is_shell_or_init(p))
     createSwapFile(p);
+
+  init_swapfile(p);
 
   // Set up new context to start executing at forkret,
   // which returns to trapret.
@@ -208,16 +210,15 @@ fork(void)
   np->sz = curproc->sz;
 
   // Our Addition
-  if (curproc->pid > 2){
-    copySwapFile(curproc, np); // Inherit swapfile content from father(curproc) to son(np)
-    np->create_order_counter = curproc->create_order_counter;
+  if (!is_shell_or_init(curproc)){
+    clone_file(curproc, np); // Inherit swapfile content from father(curproc) to son(np)
     for (i = 0; i < MAX_PSYC_PAGES; i++){
-      np->ram_manager[i] = curproc->ram_manager[i]; //deep copies ram_manager list
-      np->ram_manager[i].pgdir = np->pgdir;  //replace parent pgdir with child new pgdir
+      np->ram_manager[i] = curproc->ram_manager[i];
+      np->ram_manager[i].pgdir = np->pgdir;
     }
-    for (i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++){
-      np->file_manager[i] = curproc->file_manager[i]; //deep copies file_manager list
-      np->file_manager[i].pgdir = np->pgdir;   //replace parent pgdir with child new pgdir
+    for (i = 0; i < MAX_FILE_PAGES; i++){
+      np->file_manager[i] = curproc->file_manager[i];
+      np->file_manager[i].pgdir = np->pgdir;
     }
   }
 
@@ -643,7 +644,7 @@ int getNumOfPagesInFile(struct proc* p){
 // }
 
 int
-isShellOrInit(struct proc* p){
+is_shell_or_init(struct proc* p){
   
   int pid = -1;
   if(p)
@@ -657,7 +658,7 @@ updateAccessCountersForAll(void){
   struct proc *p;
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    // if (!isShellOrInit(p) && (p->state == RUNNING ||
+    // if (!is_shell_or_init(p) && (p->state == RUNNING ||
     //                           p->state == RUNNABLE ||
     //                           p->state == SLEEPING)){
     if(p->pid > 2 && p->state > 1 && p->state < 5){
@@ -673,7 +674,7 @@ updateadv_queuesForAll(void){
   struct proc *p;
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if (!isShellOrInit(p) && (p->state == RUNNING ||
+    if (!is_shell_or_init(p) && (p->state == RUNNING ||
                               p->state == RUNNABLE ||
                               p->state == SLEEPING)){
 
@@ -698,3 +699,15 @@ int generate_adv_number(struct proc* p){
 }
 
 
+void init_swapfile(struct proc* p){
+
+  if(p == 0)
+    return;
+
+  if(is_shell_or_init(p))
+    return;
+
+  for(int i=0; i < MAX_FILE_PAGES; i++)
+    p->file_manager[i].state = NOT_USED;
+
+}
