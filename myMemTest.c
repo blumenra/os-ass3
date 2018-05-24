@@ -121,7 +121,7 @@ void test4(){
 	printf(1, "TEST %d:\n", testNum);
 
 
-	int pagesAmount = 3;
+	int pagesAmount = 17;
     // char mallocs[pagesAmount][PGSIZE];
     int memSize = pagesAmount*PGSIZE;
     char* mallocs;
@@ -134,10 +134,14 @@ void test4(){
 	if(fork() == 0){
 		
 	    for (int i=0; i < pagesAmount; i++){
+			
 	    	if(mallocs[i*PGSIZE] != i){
-	    		printf(1, "FAILED!%s\n");
-	    		return;
+	    		printf(1, "FAILED!\n");
+	    		break;
 	    	}
+	    	else
+				printf(1, "SON PASSED!\n");
+
 	   		mallocs[i*PGSIZE] = i*10;
 	    }
 
@@ -148,10 +152,14 @@ void test4(){
 	wait();
 
 	for (int i=0; i < pagesAmount; i++){
+		
 		if(mallocs[i*PGSIZE] != i){
-			printf(1, "FAILED!%s\n");
-			return;
+			printf(1, "FAILED!\n");
+			break;
 		}
+		else
+			printf(1, "FATHER PASSED!\n");
+
 	}
 
 	free(mallocs);
